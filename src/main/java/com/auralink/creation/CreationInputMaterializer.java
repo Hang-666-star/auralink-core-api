@@ -1,0 +1,260 @@
+package com.auralink.creation;
+
+import com.auralink.config.properties.CreationProviderProperties;
+import com.auralink.creation.provider.PaintingMetadataContext;
+import com.auralink.creation.provider.ProviderImageInput;
+import com.auralink.creation.provider.ProviderInput;
+import com.auralink.creation.provider.ProviderTextInput;
+import com.auralink.entity.CreationStep;
+import com.auralink.entity.MediaAsset;
+import com.auralink.entity.Painting;
+import com.auralink.provider.artifact.ProviderArtifact;
+import com.auralink.provider.artifact.ProviderArtifactStagingService;
+import com.auralink.provider.qwen.PaintingPoemResult;
+import com.auralink.provider.qwen.PaintingPoemResultValidator;
+import com.auralink.repository.CreationStepRepository;
+import com.auralink.repository.MediaAssetRepository;
+import com.auralink.repository.PaintingRepository;
+import com.auralink.service.media.MediaAssetStorageService;
+import com.auralink.workflow.WorkflowModality;
+import java.io.IOException;
+import java.io.InputStream;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class CreationInputMaterializer {
+   private final MediaAssetRepository mediaAssets;
+   private final PaintingRepository paintings;
+   private final CreationStepRepository steps;
+   private final MediaAssetStorageService mediaStorage;
+   private final ProviderArtifactStagingService artifactStaging;
+   private final PaintingPoemResultValidator poemValidator;
+   private final CreationProviderProperties providerProperties;
+
+   @Transactional(readOnly = true)
+   public CreationInputMaterializer.MaterializedInput materialize(
+      CreationExecutionTransactionService.ClaimedCreationData creation, CreationExecutionTransactionService.StepData step
+   ) {
+      WorkflowModality expected = this.parseModality(step.inputModality());
+      return step.stepIndex() == 0 ? this.sourceInput(creation, expected) : this.intermediateInput(creation, step, expected);
+   }
+
+   private CreationInputMaterializer.MaterializedInput sourceInput(CreationExecutionTransactionService.ClaimedCreationData creation, WorkflowModality expected) {
+      WorkflowModality source = this.parseModality(creation.sourceModality());
+      if (source != expected) {
+         throw invalidInput();
+      }
+
+      return switch (source) {
+         case TEXT_DESCRIPTION, POEM -> new CreationInputMaterializer.MaterializedInput(
+            new ProviderTextInput(this.requireSafeText(creation.sourceText()), source), null
+         );
+         case IMAGE -> this.imageInput(this.requireOwnedActiveImageSource(creation.sourceAssetId(), creation.ownerId()), WorkflowModality.IMAGE, null);
+         case PAINTING -> this.paintingSourceInput(creation);
+         default -> throw invalidInput();
+      };
+   }
+
+   private CreationInputMaterializer.MaterializedInput intermediateInput(
+      CreationExecutionTransactionService.ClaimedCreationData creation, CreationExecutionTransactionService.StepData step, WorkflowModality expected
+   ) {
+      CreationStep previous = this.steps
+         .findByCreationIdAndStepIndex(creation.creationId(), step.stepIndex() - 1)
+         .orElseThrow(CreationInputMaterializer::invalidInput);
+      if (!CreationStepStatus.SUCCEEDED.name().equals(previous.getStatus())) {
+         throw invalidInput();
+      } else {
+         WorkflowModality previousOutput = this.parseModality(previous.getOutputModality());
+         if (previousOutput != expected) {
+            throw invalidInput();
+         } else if (expected == WorkflowModality.PAINTING) {
+            MediaAsset asset = previous.getOutputAsset();
+            this.requireGeneratedPainting(asset, creation.ownerId());
+            return this.imageInput(asset, WorkflowModality.PAINTING, null);
+         } else if (expected == WorkflowModality.POEM) {
+            PaintingPoemResult poem = this.poemValidator.validate(previous.getOutputJson());
+            return new CreationInputMaterializer.MaterializedInput(new ProviderTextInput(poem.text(), WorkflowModality.POEM), null);
+         } else {
+            throw invalidInput();
+         }
+      }
+   }
+
+   private CreationInputMaterializer.MaterializedInput paintingInput(Painting painting) {
+      MediaAsset image = painting.getImageAsset();
+      this.requireOfficialCatalogImage(image);
+      return this.imageInput(
+         image,
+         WorkflowModality.PAINTING,
+         new PaintingMetadataContext(
+            painting.getPublicId(),
+            painting.getTitle(),
+            painting.getAuthorName(),
+            painting.getCreationDynastyNormalized(),
+            painting.getCategory(),
+            painting.getSubject(),
+            painting.getPaintingSchool(),
+            painting.getStyle(),
+            painting.getComposition(),
+            painting.getArtisticConception(),
+            painting.getGeneratedText(),
+            painting.getMusicSceneDescription()
+         )
+      );
+   }
+
+   private CreationInputMaterializer.MaterializedInput paintingSourceInput(CreationExecutionTransactionService.ClaimedCreationData creation) {
+      if (creation.sourcePaintingId() != null && creation.sourceAssetId() == null) {
+         return this.paintingInput(this.requireOfficialPainting(creation.sourcePaintingId()));
+      } else if (creation.sourcePaintingId() == null && creation.sourceAssetId() != null) {
+         return this.imageInput(this.requireOwnedActivePainting(creation.sourceAssetId(), creation.ownerId()), WorkflowModality.PAINTING, null);
+      } else {
+         throw invalidInput();
+      }
+   }
+
+   private CreationInputMaterializer.MaterializedInput imageInput(MediaAsset asset, WorkflowModality modality, PaintingMetadataContext metadata) {
+      ProviderArtifact artifact = null;
+
+      try (InputStream input = this.mediaStorage.resolve(asset).resource().getInputStream()) {
+         artifact = this.artifactStaging.stageInputImage(input, asset.getMimeType());
+         return new CreationInputMaterializer.MaterializedInput(new ProviderImageInput(artifact, modality, metadata), artifact);
+      } catch (IOException | RuntimeException exception) {
+         this.closeQuietly(artifact);
+         throw invalidInput();
+      }
+   }
+
+   private MediaAsset requireOwnedActiveImage(Long assetId, Long ownerId) {
+      if (assetId != null && ownerId != null) {
+         MediaAsset asset = (MediaAsset)this.mediaAssets.findById(assetId).orElseThrow(CreationInputMaterializer::invalidInput);
+         if (asset.getOwnerUser() != null
+            && ownerId.equals(asset.getOwnerUser().getId())
+            && "ACTIVE".equals(asset.getStatus())
+            && "IMAGE".equals(asset.getAssetType())
+            && "PRIVATE".equals(asset.getVisibility())) {
+            return asset;
+         } else {
+            throw invalidInput();
+         }
+      } else {
+         throw invalidInput();
+      }
+   }
+
+   private MediaAsset requireOwnedActiveImageSource(Long assetId, Long ownerId) {
+      MediaAsset asset = this.requireOwnedActiveImage(assetId, ownerId);
+      if (!"IMAGE".equals(asset.getSemanticType())) {
+         throw invalidInput();
+      } else {
+         return asset;
+      }
+   }
+
+   private MediaAsset requireOwnedActivePainting(Long assetId, Long ownerId) {
+      MediaAsset asset = this.requireOwnedActiveImage(assetId, ownerId);
+      if (!"PAINTING".equals(asset.getSemanticType())) {
+         throw invalidInput();
+      } else {
+         return asset;
+      }
+   }
+
+   private Painting requireOfficialPainting(Long paintingId) {
+      if (paintingId == null) {
+         throw invalidInput();
+      } else {
+         Painting painting = (Painting)this.paintings.findById(paintingId).orElseThrow(CreationInputMaterializer::invalidInput);
+         if ("ACTIVE".equals(painting.getStatus()) && painting.isImageAvailable()) {
+            return painting;
+         } else {
+            throw invalidInput();
+         }
+      }
+   }
+
+   private void requireOfficialCatalogImage(MediaAsset asset) {
+      if (asset == null
+         || asset.getOwnerUser() != null
+         || !"ACTIVE".equals(asset.getStatus())
+         || !"IMAGE".equals(asset.getAssetType())
+         || !"PUBLIC".equals(asset.getVisibility())
+         || !"CATALOG_REFERENCE".equals(asset.getSourceType())) {
+         throw invalidInput();
+      }
+   }
+
+   private void requireGeneratedPainting(MediaAsset asset, Long ownerId) {
+      if (asset == null
+         || ownerId == null
+         || asset.getOwnerUser() == null
+         || !ownerId.equals(asset.getOwnerUser().getId())
+         || !"ACTIVE".equals(asset.getStatus())
+         || !"IMAGE".equals(asset.getAssetType())
+         || !"GENERATED_PAINTING".equals(asset.getSemanticType())
+         || !"GENERATED".equals(asset.getSourceType())
+         || !"PRIVATE".equals(asset.getVisibility())) {
+         throw invalidInput();
+      }
+   }
+
+   private String requireSafeText(String text) {
+      if (text != null
+         && !text.isBlank()
+         && text.length() <= this.providerProperties.getMaxTextChars()
+         && !text.codePoints().anyMatch(codePoint -> Character.isISOControl(codePoint) && codePoint != 10 && codePoint != 13 && codePoint != 9)) {
+         return text;
+      } else {
+         throw invalidInput();
+      }
+   }
+
+   private WorkflowModality parseModality(String value) {
+      try {
+         return WorkflowModality.valueOf(value);
+      } catch (IllegalArgumentException | NullPointerException exception) {
+         throw invalidInput();
+      }
+   }
+
+   private void closeQuietly(ProviderArtifact artifact) {
+      if (artifact != null) {
+         try {
+            artifact.close();
+         } catch (RuntimeException var3) {
+         }
+      }
+   }
+
+   private static IllegalArgumentException invalidInput() {
+      return new IllegalArgumentException("Creation input is unavailable or invalid");
+   }
+
+   public CreationInputMaterializer(
+      final MediaAssetRepository mediaAssets,
+      final PaintingRepository paintings,
+      final CreationStepRepository steps,
+      final MediaAssetStorageService mediaStorage,
+      final ProviderArtifactStagingService artifactStaging,
+      final PaintingPoemResultValidator poemValidator,
+      final CreationProviderProperties providerProperties
+   ) {
+      this.mediaAssets = mediaAssets;
+      this.paintings = paintings;
+      this.steps = steps;
+      this.mediaStorage = mediaStorage;
+      this.artifactStaging = artifactStaging;
+      this.poemValidator = poemValidator;
+      this.providerProperties = providerProperties;
+   }
+
+   public record MaterializedInput(ProviderInput input, ProviderArtifact inputArtifact) implements AutoCloseable {
+      @Override
+      public void close() {
+         if (this.inputArtifact != null) {
+            this.inputArtifact.close();
+         }
+      }
+   }
+}
