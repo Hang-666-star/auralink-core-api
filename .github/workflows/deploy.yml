@@ -1,0 +1,31 @@
+name: Deploy Core API to Production
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    concurrency:
+      group: core-api-production-deployment
+      cancel-in-progress: false
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy exact release commit to AutoDL
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          command_timeout: 25m
+          script: |
+            /root/autodl-tmp/auralink-core-deploy/bin/deploy-core.sh deploy "${{ github.sha }}"
