@@ -2,15 +2,20 @@ name: Core API CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release]
   push:
     branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: core-api-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    name: Build core API
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -29,3 +34,18 @@ jobs:
 
       - name: Verify PostgreSQL runtime driver
         run: jar tf target/auralink-backend-0.0.1-SNAPSHOT.jar | grep -E 'BOOT-INF/lib/postgresql-[^/]+\.jar$'
+
+  release-source:
+    name: Verify main-to-release promotion
+    if: github.event_name == 'pull_request' && github.base_ref == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the main branch as the release source
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_BRANCH" != "main" ]; then
+            echo "Only pull requests from main may target release." >&2
+            exit 1
+          fi
+          echo "Verified promotion path: main -> release"
