@@ -11,8 +11,6 @@ permissions:
 jobs:
   stage:
     runs-on: ubuntu-latest
-    environment:
-      name: production
     concurrency:
       group: core-api-r25-artifact-staging
       cancel-in-progress: false
@@ -38,29 +36,8 @@ jobs:
             target/r25-artifact-verification.json
             target/surefire-reports/
           if-no-files-found: error
-      - name: Copy build bytes only into isolated incoming
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          source: target/auralink-backend-0.0.1-SNAPSHOT.jar
-          target: /root/autodl-tmp/auralink-core-deploy/incoming
-          strip_components: 1
-      - name: Register verified staging only; never activate production
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          command_timeout: 2m
-          script: |
-            set -eu
-            JAR=/root/autodl-tmp/auralink-core-deploy/incoming/auralink-backend-0.0.1-SNAPSHOT.jar
-            test -f "$JAR" && test ! -L "$JAR"
-            chmod 600 "$JAR"
-            SHA=$(sha256sum "$JAR" | cut -d ' ' -f 1)
-            /root/autodl-tmp/auralink-core-deploy/bin/deploy-core.sh stage "${{ github.sha }}" "$JAR" "$SHA"
-            /root/autodl-tmp/auralink-core-deploy/bin/deploy-core.sh status
+      - name: Publication is owned by R25, not this workflow
+        run: |
+          echo "Verified artifacts are available for isolated R25 staging."
+          echo "This workflow does not connect to production or control Java."
+          echo "Production activation requires the approved R25 coordinator."
