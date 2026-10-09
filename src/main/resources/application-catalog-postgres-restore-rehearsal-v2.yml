@@ -1,0 +1,56 @@
+# Second, fresh restore runtime for the final rehearsal.  This overlay is used
+# with catalog-postgres-creation-integration only and deliberately points to a
+# separately labelled local PostgreSQL container plus separately extracted
+# media roots.  It contains no production endpoint or provider fallback.
+server:
+  address: 127.0.0.1
+  port: ${CATALOG_RESTORE_V2_TEST_PORT:18237}
+
+spring:
+  datasource:
+    url: "jdbc:postgresql://127.0.0.1:55479/artlive_catalog_prototype"
+
+auralink:
+  cors:
+    allowed-origins: "http://127.0.0.1:13234"
+  storage:
+    upload-dir: "./runtime/restored-v2-legacy-uploads"
+    audio-dir: "./runtime/restored-v2-audios"
+    legacy-frontend-audio-dir: "./runtime/restored-v2-legacy-frontend-audios"
+  media-assets:
+    managed-dir: "../postgres-prototype/runtime/restored-media-v2/managed"
+  paintings:
+    picture-dir: "./runtime/restored-catalog-images-v2"
+  catalog-read:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55479/artlive_catalog_prototype"
+    batch-media-roots:
+      - batch-id: "7f2f9d0a-5db0-4a61-bc67-e995bd0fd701"
+        revision: 1
+        root: "../postgres-prototype/runtime/restored-source-v2/batches/legacy-27"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 1
+        root: "../postgres-prototype/runtime/restored-source-v2/batches/contemporary-study"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 2
+        root: "../postgres-prototype/runtime/restored-source-v2/batches/contemporary-study-r2"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 3
+        root: "../postgres-prototype/runtime/restored-source-v2/batches/contemporary-study-r3-guide-browser"
+  catalog-auth:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55479/artlive_catalog_prototype"
+  catalog-critic:
+    private-media-root: "../postgres-prototype/runtime/restored-media-v2/private"
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55479/artlive_catalog_prototype"
+  catalog-guide:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55479/artlive_catalog_prototype"
+  guide:
+    service-url: "http://127.0.0.1:18239"
+    service-port: 18239
+  critic:
+    service-url: "http://127.0.0.1:18238"
+  creation-providers:
+    staging-dir: "./runtime/restored-v2-provider-staging"

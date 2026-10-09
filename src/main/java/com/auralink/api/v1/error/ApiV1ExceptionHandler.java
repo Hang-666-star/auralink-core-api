@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.ResponseEntity.BodyBuilder;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -107,7 +108,7 @@ public class ApiV1ExceptionHandler {
       ApiV1ErrorResponse body = new ApiV1ErrorResponse(
          Instant.now(), status.value(), code.name(), message, request.getRequestURI(), correlationId, validationErrors, violations
       );
-      return ((BodyBuilder)ResponseEntity.status(status).header("X-Correlation-ID", new String[]{correlationId})).body(body);
+      return ((BodyBuilder)ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).header("X-Correlation-ID", new String[]{correlationId})).body(body);
    }
 
    private String correlationId(HttpServletRequest request) {
