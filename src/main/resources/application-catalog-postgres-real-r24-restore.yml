@@ -1,0 +1,53 @@
+# Local-only profile for the separately restored private R24 rehearsal.
+# It cannot use the imported source roots or the original target container.
+server:
+  address: 127.0.0.1
+  port: ${REAL_R24_RESTORE_TEST_PORT:18327}
+
+spring:
+  datasource:
+    url: "jdbc:postgresql://127.0.0.1:55532/artlive_catalog_prototype"
+
+auralink:
+  cors:
+    allowed-origins: "http://127.0.0.1:13327"
+  storage:
+    upload-dir: "./runtime/real-r24-restored-uploads"
+    audio-dir: "./runtime/real-r24-restored-audios"
+    legacy-frontend-audio-dir: "./runtime/real-r24-restored-legacy-audios"
+  media-assets:
+    managed-dir: "../postgres-prototype/runtime/real-r24-restored-managed-v1"
+  paintings:
+    import-enabled: false
+    metadata-csv-path: "./runtime/real-r24-restored-catalog-import-disabled.csv"
+    picture-dir: "./runtime/real-r24-restored-catalog-images"
+  catalog-read:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55532/artlive_catalog_prototype"
+    batch-media-roots:
+      - batch-id: "d11d1e70-5a22-4b9b-8d75-9b94f3a22804"
+        revision: 1
+        root: "../postgres-prototype/runtime/real-r24-restored-source-v1/batch"
+  catalog-auth:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55532/artlive_catalog_prototype"
+  catalog-critic:
+    private-media-root: "../postgres-prototype/runtime/real-r24-restored-source-v1/private-media"
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55532/artlive_catalog_prototype"
+  catalog-guide:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55532/artlive_catalog_prototype"
+  guide:
+    service-url: "http://127.0.0.1:18991"
+    service-host: "127.0.0.1"
+    service-port: 18991
+    knowledge-root: "../postgres-prototype/runtime/real-r24-restored-source-v1/guide-knowledge"
+    poetry-graph-path: "../postgres-prototype/runtime/real-r24-restored-source-v1/guide-knowledge/poetry-graph.json"
+    poetry-stats-path: "../postgres-prototype/runtime/real-r24-restored-source-v1/guide-knowledge/poetry-stats.json"
+  critic:
+    service-url: "http://127.0.0.1:18992"
+  creation-providers:
+    staging-dir: "./runtime/real-r24-restored-provider-staging"
+  unified-import:
+    expected-source-id: "r24-private-snapshot-a882eda2069db997"

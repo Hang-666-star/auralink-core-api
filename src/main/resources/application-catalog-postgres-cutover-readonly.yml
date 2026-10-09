@@ -1,0 +1,7 @@
+# Explicit handoff-only overlay.  Select it only while the source remains
+# fenced and PostgreSQL is being reconciled/read-accepted on loopback.  The
+# CutoverReadOnlyFilter rejects all non-GET/HEAD/OPTIONS HTTP methods.
+spring:
+  task:
+    scheduling:
+      enabled: false

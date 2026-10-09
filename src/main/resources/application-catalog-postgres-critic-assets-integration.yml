@@ -1,0 +1,110 @@
+# Local-only Critic/asset integration.  SQLite is only a disposable bootstrap
+# for unported modules; PostgreSQL owns users, catalog, favourites, private
+# asset metadata and all active Critic task/result rows.
+server:
+  address: 127.0.0.1
+  port: ${CATALOG_CRITIC_TEST_PORT:18106}
+
+spring:
+  config:
+    import: "optional:file:./runtime/integration-only.env[.properties]"
+  datasource:
+    url: "jdbc:sqlite:./runtime/catalog-critic-assets-integration.sqlite"
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 1
+      connection-init-sql: "PRAGMA foreign_keys=ON"
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    clean-disabled: true
+    init-sqls:
+      - "PRAGMA foreign_keys=ON"
+  task:
+    scheduling:
+      enabled: true
+
+auralink:
+  cors:
+    allowed-origins: "http://127.0.0.1:13103"
+  jwt:
+    # Synthetic local HMAC key only.
+    secret: "Y3JpdGljLWFzc2V0cy1pbnRlZ3JhdGlvbi1zeW50aGV0aWMtMjAyNi0wOQ=="
+    expiration: 3600000
+  storage:
+    upload-dir: "./runtime/uploads"
+    audio-dir: "./runtime/audios"
+    legacy-frontend-audio-dir: "./runtime/legacy-audios"
+  media-assets:
+    managed-dir: "./runtime/media-assets"
+    max-upload-bytes: 10485760
+    max-generated-bytes: 10485760
+    max-image-pixels: 40000000
+  paintings:
+    import-enabled: false
+    import-fail-on-error: true
+    metadata-csv-path: "./runtime/catalog-import-disabled.csv"
+    picture-dir: "./runtime/catalog-import-disabled-images"
+  catalog-read:
+    enabled: true
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55447/artlive_catalog_prototype"
+      username: artlive_proto
+      password: "${CATALOG_READ_PG_PASSWORD}"
+      maximum-pool-size: 2
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+    batch-media-roots:
+      - batch-id: "7f2f9d0a-5db0-4a61-bc67-e995bd0fd701"
+        revision: 1
+        root: "../postgres-prototype/examples/legacy-27"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 1
+        root: "../postgres-prototype/examples/contemporary-study"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 2
+        root: "../postgres-prototype/examples/contemporary-study-r2"
+  catalog-auth:
+    enabled: true
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55447/artlive_catalog_prototype"
+      username: artlive_proto
+      password: "${CATALOG_AUTH_PG_PASSWORD}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  catalog-critic:
+    enabled: true
+    private-media-root: "../postgres-prototype/examples/legacy-critic/media"
+    fail-after-provider-response: ${CATALOG_CRITIC_FAIL_AFTER_PROVIDER_RESPONSE:false}
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55447/artlive_catalog_prototype"
+      username: artlive_proto
+      password: "${CATALOG_CRITIC_PG_PASSWORD}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  guide:
+    enabled: false
+  critic:
+    enabled: true
+    service-url: "http://127.0.0.1:18107"
+    internal-token: "synthetic-critic-internal-token-only"
+    connect-timeout: 1000ms
+    overall-deadline: 1000ms
+    max-concurrent-evaluations: 2
+    evaluator-version: "stub-evaluator-v1"
+    model-identity: "deterministic-local-stub"
+    prompt-schema-version: "1"
+    recovery-interval-ms: 250
+  workflows:
+    enabled: false
+  creations:
+    enabled: false
+  creation-providers:
+    enabled: false

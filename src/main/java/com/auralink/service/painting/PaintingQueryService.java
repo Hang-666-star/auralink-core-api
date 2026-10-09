@@ -313,10 +313,19 @@ public class PaintingQueryService {
          .map(this::catalogAnnotation)
          .toList();
       String dynastyRaw = painting.value("legacy.creation_dynasty_raw");
+      // Compatibility fields must not bypass explicit non-public mappings.
+      // Legacy mappings remain unchanged; identifiers and source paths for
+      // typed catalogues remain private without row-number/path fallbacks.
+      String publicSourceSequence = explicitlyNonPublic(painting,
+         Set.of("source.record_id", "source.original_sequence"))
+         ? null : painting.sourceSequence();
+      String publicImageStorageName = explicitlyNonPublic(painting,
+         Set.of("source.relative_image", "source.original_image_reference"))
+         ? null : painting.imageStorageName();
       return new PaintingDetailResponse(
          painting.publicId(),
-         painting.sourceSequence(),
-         painting.imageStorageName(),
+         publicSourceSequence,
+         publicImageStorageName,
          painting.title(),
          painting.authorName(),
          painting.value("legacy.author_birth_year"),
@@ -350,6 +359,12 @@ public class PaintingQueryService {
          favorited,
          annotations
       );
+   }
+
+   private static boolean explicitlyNonPublic(CatalogReadStore.CatalogPainting painting, Set<String> fieldKeys) {
+      return painting.annotations().stream()
+         .anyMatch(annotation -> fieldKeys.contains(annotation.fieldKey())
+            && !"public".equals(annotation.visibility()));
    }
 
    private PaintingImageResponse catalogImage(CatalogReadStore.CatalogPainting painting) {

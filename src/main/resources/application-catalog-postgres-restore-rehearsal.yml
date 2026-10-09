@@ -1,0 +1,55 @@
+# Overlay for the *separate* local restore target.  It is activated together
+# with catalog-postgres-creation-integration and contains no production host,
+# credential, file root, or provider endpoint.
+server:
+  address: 127.0.0.1
+  port: ${CATALOG_RESTORE_TEST_PORT:18227}
+
+spring:
+  datasource:
+    url: "jdbc:postgresql://127.0.0.1:55478/artlive_catalog_prototype"
+
+auralink:
+  cors:
+    allowed-origins: "http://127.0.0.1:13224"
+  storage:
+    upload-dir: "./runtime/restored-legacy-uploads"
+    audio-dir: "./runtime/restored-audios"
+    legacy-frontend-audio-dir: "./runtime/restored-legacy-frontend-audios"
+  media-assets:
+    managed-dir: "../postgres-prototype/runtime/restored-media/managed"
+  paintings:
+    picture-dir: "./runtime/restored-catalog-images"
+  catalog-read:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55478/artlive_catalog_prototype"
+    batch-media-roots:
+      - batch-id: "7f2f9d0a-5db0-4a61-bc67-e995bd0fd701"
+        revision: 1
+        root: "../postgres-prototype/runtime/restored-source/batches/legacy-27"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 1
+        root: "../postgres-prototype/runtime/restored-source/batches/contemporary-study"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 2
+        root: "../postgres-prototype/runtime/restored-source/batches/contemporary-study-r2"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 3
+        root: "../postgres-prototype/runtime/restored-source/batches/contemporary-study-r3-guide-browser"
+  catalog-auth:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55478/artlive_catalog_prototype"
+  catalog-critic:
+    private-media-root: "../postgres-prototype/runtime/restored-media/private"
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55478/artlive_catalog_prototype"
+  catalog-guide:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55478/artlive_catalog_prototype"
+  guide:
+    service-url: "http://127.0.0.1:18229"
+    service-port: 18229
+  critic:
+    service-url: "http://127.0.0.1:18228"
+  creation-providers:
+    staging-dir: "./runtime/restored-provider-staging"
