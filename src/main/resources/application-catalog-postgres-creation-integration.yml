@@ -1,0 +1,153 @@
+# Local-only Creation integration.  All active user, catalog, asset, Critic,
+# Guide and Creation persistence uses the single labelled PostgreSQL fixture.
+# No SQLite datasource is configured in this profile.
+server:
+  address: 127.0.0.1
+  port: ${CATALOG_CREATION_TEST_PORT:18126}
+
+spring:
+  config:
+    import: "optional:file:./runtime/integration-only.env[.properties]"
+  datasource:
+    url: "jdbc:postgresql://127.0.0.1:55477/artlive_catalog_prototype"
+    username: artlive_proto
+    password: "${CATALOG_CREATION_PG_PASSWORD}"
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 6
+      minimum-idle: 0
+      connection-timeout: 2000
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: false
+  task:
+    scheduling:
+      enabled: true
+
+auralink:
+  cors:
+    allowed-origins: "http://127.0.0.1:13123"
+  jwt:
+    secret: "Y2F0YWxvZy1jcmVhdGlvbi1pbnRlZ3JhdGlvbi1zeW50aGV0aWMtMjAyNi0wOQ=="
+    expiration: 3600000
+  storage:
+    upload-dir: "./runtime/closure-legacy-uploads"
+    audio-dir: "./runtime/closure-audios"
+    legacy-frontend-audio-dir: "./runtime/closure-legacy-frontend-audios"
+  media-assets:
+    # The working directory is backend/.  This root is created by the local
+    # unified fixture runner and is included in the media backup manifest.
+    managed-dir: "../postgres-prototype/runtime/unified-target-media/managed"
+    max-upload-bytes: 10485760
+    max-generated-bytes: 10485760
+    max-image-pixels: 40000000
+  paintings:
+    import-enabled: false
+    import-fail-on-error: true
+    metadata-csv-path: "./runtime/catalog-import-disabled.csv"
+    picture-dir: "./runtime/closure-catalog-images"
+  catalog-read:
+    enabled: true
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55477/artlive_catalog_prototype"
+      username: artlive_proto
+      password: "${CATALOG_READ_PG_PASSWORD}"
+      maximum-pool-size: 2
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+    batch-media-roots:
+      - batch-id: "7f2f9d0a-5db0-4a61-bc67-e995bd0fd701"
+        revision: 1
+        root: "../postgres-prototype/runtime/unified-source-v2/batches/legacy-27"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 1
+        root: "../postgres-prototype/runtime/unified-source-v2/batches/contemporary-study"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 2
+        root: "../postgres-prototype/runtime/unified-source-v2/batches/contemporary-study-r2"
+      - batch-id: "d43becc4-c424-4b63-99d8-af5f072bbd8d"
+        revision: 3
+        root: "../postgres-prototype/runtime/unified-source-v2/batches/contemporary-study-r3-guide-browser"
+  catalog-auth:
+    enabled: true
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55477/artlive_catalog_prototype"
+      username: artlive_proto
+      password: "${CATALOG_AUTH_PG_PASSWORD}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  catalog-critic:
+    enabled: true
+    private-media-root: "../postgres-prototype/runtime/unified-target-media/private"
+    fail-after-provider-response: ${CATALOG_CRITIC_FAIL_AFTER_PROVIDER_RESPONSE:false}
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55477/artlive_catalog_prototype"
+      username: artlive_proto
+      password: "${CATALOG_CRITIC_PG_PASSWORD}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  catalog-guide:
+    enabled: true
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55477/artlive_catalog_prototype"
+      username: artlive_proto
+      password: "${CATALOG_GUIDE_PG_PASSWORD}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  guide:
+    enabled: true
+    service-url: "http://127.0.0.1:18128"
+    service-host: "127.0.0.1"
+    service-port: 18128
+    internal-token: "synthetic-guide-internal-token-only"
+    connect-timeout: 1000ms
+    read-timeout: 1000ms
+    total-timeout: 1000ms
+    internal-read-timeout: 4000ms
+    retry-backoff: 10ms
+    max-concurrent-generations: 2
+    user-generation-limit: 20
+    global-generation-limit: 100
+    poetry-graph-path: "../frontend/public/data/poetry-graph.json"
+    poetry-stats-path: "../frontend/public/data/poetry-stats.json"
+  critic:
+    enabled: true
+    service-url: "http://127.0.0.1:18127"
+    internal-token: "synthetic-critic-internal-token-only"
+    connect-timeout: 1000ms
+    overall-deadline: 1000ms
+    max-concurrent-evaluations: 2
+    evaluator-version: "stub-evaluator-v1"
+    model-identity: "deterministic-local-stub"
+    prompt-schema-version: "1"
+    recovery-interval-ms: 250
+  workflows:
+    enabled: true
+  creations:
+    enabled: true
+    enabled-operations:
+      - TEXT_TO_PAINTING
+      - IMAGE_TO_PAINTING
+      - POEM_TO_PAINTING
+      - PAINTING_TO_POEM
+      - PAINTING_TO_MUSIC
+    # @Scheduled consumes this legacy property as raw milliseconds.
+    dispatch-delay: 100
+    recovery-interval: 200ms
+    recovery-grace: 200ms
+  creation-providers:
+    enabled: true
+    mock-adapters-enabled: true
+    staging-dir: "./runtime/closure-provider-staging"
+  unified-import:
+    # Refuse this local application profile until a unified runner records a
+    # fully validated synthetic source.  Individual staged units may exist
+    # after a failed import but are not an application-ready target.
+    require-succeeded: true
+    expected-source-id: "synthetic-r24-unified-rehearsal-v1"

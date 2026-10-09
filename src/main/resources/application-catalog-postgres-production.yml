@@ -1,0 +1,107 @@
+# Production PostgreSQL overlay. It is inert unless explicitly selected as a
+# Spring profile. Values are supplied only by a mode-0600 runtime profile;
+# there are deliberately no SQLite, local-stub, or provider-key defaults here.
+server:
+  address: 127.0.0.1
+  port: ${ARTLIVE_SERVER_PORT:19080}
+
+spring:
+  datasource:
+    url: "${ARTLIVE_POSTGRES_JDBC_URL:}"
+    username: "${ARTLIVE_POSTGRES_USERNAME:}"
+    password: "${ARTLIVE_POSTGRES_PASSWORD:}"
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 6
+      minimum-idle: 0
+      connection-timeout: 2000
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+  # Schema creation is a separately guarded import/migration operation. The
+  # application must never mutate a target schema as an implicit side effect.
+  flyway:
+    enabled: false
+  task:
+    scheduling:
+      enabled: true
+
+auralink:
+  cors:
+    allowed-origins: "https://artlive.top"
+  storage:
+    upload-dir: "${ARTLIVE_UPLOAD_DIR:}"
+    audio-dir: "${ARTLIVE_AUDIO_DIR:}"
+    legacy-frontend-audio-dir: "${ARTLIVE_LEGACY_AUDIO_DIR:}"
+  media-assets:
+    managed-dir: "${ARTLIVE_MANAGED_MEDIA_DIR:}"
+  paintings:
+    # Catalog provenance is imported before handoff; startup import is unsafe.
+    import-enabled: false
+    import-fail-on-error: true
+    metadata-csv-path: "${ARTLIVE_CATALOG_IMPORT_DISABLED_PATH:}"
+    picture-dir: "${ARTLIVE_CATALOG_LEGACY_PICTURE_DIR:}"
+  catalog-read:
+    enabled: true
+    datasource:
+      jdbc-url: "${ARTLIVE_POSTGRES_JDBC_URL:}"
+      username: "${ARTLIVE_POSTGRES_USERNAME:}"
+      password: "${ARTLIVE_POSTGRES_PASSWORD:}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  catalog-auth:
+    enabled: true
+    datasource:
+      jdbc-url: "${ARTLIVE_POSTGRES_JDBC_URL:}"
+      username: "${ARTLIVE_POSTGRES_USERNAME:}"
+      password: "${ARTLIVE_POSTGRES_PASSWORD:}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  catalog-critic:
+    enabled: true
+    private-media-root: "${ARTLIVE_PRIVATE_MEDIA_DIR:}"
+    datasource:
+      jdbc-url: "${ARTLIVE_POSTGRES_JDBC_URL:}"
+      username: "${ARTLIVE_POSTGRES_USERNAME:}"
+      password: "${ARTLIVE_POSTGRES_PASSWORD:}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  catalog-guide:
+    enabled: true
+    datasource:
+      jdbc-url: "${ARTLIVE_POSTGRES_JDBC_URL:}"
+      username: "${ARTLIVE_POSTGRES_USERNAME:}"
+      password: "${ARTLIVE_POSTGRES_PASSWORD:}"
+      maximum-pool-size: 4
+      minimum-idle: 0
+      connection-timeout-ms: 2000
+  guide:
+    enabled: true
+    service-url: "http://127.0.0.1:19084"
+    service-host: 127.0.0.1
+    service-port: 19084
+  critic:
+    enabled: true
+    service-url: "http://127.0.0.1:19085"
+  workflows:
+    enabled: true
+  creations:
+    enabled: true
+    enabled-operations:
+      - TEXT_TO_PAINTING
+      - POEM_TO_PAINTING
+      - IMAGE_TO_PAINTING
+      - PAINTING_TO_POEM
+      - PAINTING_TO_MUSIC
+  creation-providers:
+    enabled: true
+    # Intentionally omits mock-adapters-enabled; the base production default
+    # remains false and real provider configuration stays external.
+    staging-dir: "${ARTLIVE_PROVIDER_STAGING_DIR:}"
+  unified-import:
+    require-succeeded: true
+    expected-source-id: "${ARTLIVE_UNIFIED_IMPORT_SOURCE_ID:}"

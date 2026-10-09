@@ -29,11 +29,24 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Build production artifact
-        run: mvn -B -ntp -Dmaven.test.skip=true clean package
+      - name: Test and build production artifact
+        run: mvn -B -ntp clean package
 
       - name: Verify PostgreSQL runtime driver
         run: jar tf target/auralink-backend-0.0.1-SNAPSHOT.jar | grep -E 'BOOT-INF/lib/postgresql-[^/]+\.jar$'
+
+      - name: Verify accepted R25 packaged contracts
+        run: python3 scripts/verify-r25-artifact.py target/auralink-backend-0.0.1-SNAPSHOT.jar --output target/r25-artifact-verification.json
+
+      - name: Preserve verified build for R25 staging
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-api-r25-${{ github.sha }}
+          path: |
+            target/auralink-backend-0.0.1-SNAPSHOT.jar
+            target/r25-artifact-verification.json
+            target/surefire-reports/
+          if-no-files-found: error
 
   release-source:
     name: Verify main-to-release promotion

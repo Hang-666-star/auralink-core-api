@@ -1,0 +1,58 @@
+# Private, loopback-only application overlay for the completed R24 snapshot
+# rehearsal. It is used only with catalog-postgres-creation-integration.
+# Every datasource is the explicitly named local PostgreSQL target; no SQLite
+# fallback, production host, or provider endpoint is configured here.
+server:
+  address: 127.0.0.1
+  port: ${REAL_R24_TEST_PORT:18317}
+
+spring:
+  datasource:
+    url: "jdbc:postgresql://127.0.0.1:55520/artlive_catalog_prototype"
+
+auralink:
+  cors:
+    allowed-origins: "http://127.0.0.1:13317"
+  storage:
+    upload-dir: "./runtime/real-r24-app-uploads"
+    audio-dir: "./runtime/real-r24-app-audios"
+    legacy-frontend-audio-dir: "./runtime/real-r24-app-legacy-audios"
+  media-assets:
+    managed-dir: "../postgres-prototype/runtime/real-r24-app-target-managed"
+  paintings:
+    import-enabled: false
+    metadata-csv-path: "./runtime/real-r24-catalog-import-disabled.csv"
+    picture-dir: "./runtime/real-r24-catalog-images"
+  catalog-read:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55520/artlive_catalog_prototype"
+    batch-media-roots:
+      - batch-id: "d11d1e70-5a22-4b9b-8d75-9b94f3a22804"
+        revision: 1
+        root: "../postgres-prototype/runtime/real-r24-source-v3/batch"
+  catalog-auth:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55520/artlive_catalog_prototype"
+  catalog-critic:
+    private-media-root: "../postgres-prototype/runtime/real-r24-source-v3/private-media"
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55520/artlive_catalog_prototype"
+  catalog-guide:
+    datasource:
+      jdbc-url: "jdbc:postgresql://127.0.0.1:55520/artlive_catalog_prototype"
+  # Local unreachable endpoints make a real-provider fallback impossible. No
+  # POST is issued in this read-only rehearsal, and scheduled recovery sees
+  # only completed historical rows.
+  guide:
+    service-url: "http://127.0.0.1:18991"
+    service-host: "127.0.0.1"
+    service-port: 18991
+    knowledge-root: "../postgres-prototype/runtime/real-r24-source-v3/guide-knowledge"
+    poetry-graph-path: "../postgres-prototype/runtime/real-r24-source-v3/guide-knowledge/poetry-graph.json"
+    poetry-stats-path: "../postgres-prototype/runtime/real-r24-source-v3/guide-knowledge/poetry-stats.json"
+  critic:
+    service-url: "http://127.0.0.1:18992"
+  creation-providers:
+    staging-dir: "./runtime/real-r24-app-provider-staging"
+  unified-import:
+    expected-source-id: "r24-private-snapshot-a882eda2069db997"
