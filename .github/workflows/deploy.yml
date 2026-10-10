@@ -1,4 +1,4 @@
-name: Stage Verified Core API for R25
+name: Publish Verified Core API to R25
 
 on:
   push:
@@ -15,29 +15,113 @@ jobs:
       group: core-api-r25-artifact-staging
       cancel-in-progress: false
     timeout-minutes: 30
-
     steps:
+      - name: Require the release branch
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/release ]; then
+            echo "Core release candidates must be built from release." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test release candidate integrity checks
+        run: python3 -B -m unittest discover -s tests -p 'test_core_release_candidate.py' -v
       - name: Test and build the exact release source
         run: mvn -B -ntp clean package
       - name: Verify the packaged R25 contracts
         run: python3 scripts/verify-r25-artifact.py target/auralink-backend-0.0.1-SNAPSHOT.jar --output target/r25-artifact-verification.json
-      - name: Retain this verified artifact
+      - name: Bind the candidate to this release run
+        run: |
+          python3 scripts/core-release-candidate.py create \
+            --repository "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" \
+            --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --jar target/auralink-backend-0.0.1-SNAPSHOT.jar \
+            --verification target/r25-artifact-verification.json \
+            --output target/core-release-candidate.json
+          python3 scripts/core-release-candidate.py verify \
+            --manifest target/core-release-candidate.json \
+            --expected-commit "$GITHUB_SHA" --expected-run-id "$GITHUB_RUN_ID" --expected-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --jar target/auralink-backend-0.0.1-SNAPSHOT.jar \
+            --verification target/r25-artifact-verification.json
+      - name: Retain this verified candidate
         uses: actions/upload-artifact@v4
         with:
           name: core-api-r25-staging-${{ github.sha }}
           path: |
             target/auralink-backend-0.0.1-SNAPSHOT.jar
             target/r25-artifact-verification.json
+            target/core-release-candidate.json
             target/surefire-reports/
           if-no-files-found: error
-      - name: Publication is owned by R25, not this workflow
+      - name: State when production publication is disabled
+        if: vars.R25_DEPLOY_ENABLED != 'true'
         run: |
-          echo "Verified artifacts are available for isolated R25 staging."
-          echo "This workflow does not connect to production or control Java."
-          echo "Production activation requires the approved R25 coordinator."
+          echo '### NOT_DEPLOYED' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Candidate built and retained. R25_DEPLOY_ENABLED is not true; the production controller has not been invoked.' >> "$GITHUB_STEP_SUMMARY"
+  publish:
+    needs: stage
+    if: vars.R25_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    concurrency:
+      group: core-api-r25-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: core-api-r25-staging-${{ github.sha }}
+          path: candidate
+      - name: Refuse an obsolete queued release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          latest=$(git ls-remote --exit-code origin refs/heads/release | cut -f1)
+          test "$latest" = "$GITHUB_SHA"
+      - name: Transfer candidate and run the installed R25 publisher
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SERVER_HOST_KEY: ${{ vars.SERVER_HOST_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/release
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SERVER_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$SERVER_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$SERVER_PORT" =~ ^[1-9][0-9]{0,4}$ ]]
+          test -n "$SERVER_SSH_KEY"
+          [[ "$SERVER_HOST_KEY" =~ ^ssh-ed25519\ [A-Za-z0-9+/]+={0,2}$ ]]
+          umask 077
+          key_dir=$(mktemp -d "$RUNNER_TEMP/r25-core-ssh.XXXXXX")
+          trap 'rm -f -- "$key_dir/key" "$key_dir/known_hosts"; rmdir -- "$key_dir"' EXIT
+          printf '%s\n' "$SERVER_SSH_KEY" > "$key_dir/key"
+          known_host="$SERVER_HOST"
+          if [ "$SERVER_PORT" != 22 ]; then known_host="[$SERVER_HOST]:$SERVER_PORT"; fi
+          printf '%s %s\n' "$known_host" "$SERVER_HOST_KEY" > "$key_dir/known_hosts"
+          unset SERVER_SSH_KEY
+          common=(-i "$key_dir/key" -o "UserKnownHostsFile=$key_dir/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
+          destination="$SERVER_USER@$SERVER_HOST"
+          publisher=/root/autodl-tmp/artlive-r25-native-pg16/handoff-production-20260923T062101Z/operations/r25-publisher/core_publish.py
+          incoming="/root/autodl-tmp/auralink-core-deploy/incoming/$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          identity="--commit $GITHUB_SHA --run-id $GITHUB_RUN_ID --run-attempt $GITHUB_RUN_ATTEMPT"
+          ssh "${common[@]}" -p "$SERVER_PORT" "$destination" "/root/miniconda3/bin/python3 -B $publisher prepare-incoming $identity"
+          chmod 600 candidate/auralink-backend-0.0.1-SNAPSHOT.jar candidate/r25-artifact-verification.json candidate/core-release-candidate.json
+          scp "${common[@]}" -P "$SERVER_PORT" -p \
+            candidate/auralink-backend-0.0.1-SNAPSHOT.jar candidate/r25-artifact-verification.json candidate/core-release-candidate.json \
+            "$destination:$incoming/"
+          ssh "${common[@]}" -p "$SERVER_PORT" "$destination" \
+            "timeout --signal=TERM --kill-after=60 480 /root/miniconda3/bin/python3 -B $publisher publish $identity"

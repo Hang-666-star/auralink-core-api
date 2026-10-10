@@ -45,8 +45,11 @@ def verify(jar):
                 raise ValueError("accepted class contract missing: " + path)
         if not any(name.startswith("BOOT-INF/lib/postgresql-") and name.endswith(".jar") for name in names):
             raise ValueError("PostgreSQL runtime driver missing")
+    result = hashlib.sha256()
     with jar.open("rb") as stream:
-        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            result.update(block)
+    digest = result.hexdigest()
     return {"status": "PASS", "jar_sha256": digest, "jar_bytes": jar.stat().st_size,
             "profile_count": len(profiles), "profiles": profiles,
             "scope": "packaged resource and bytecode contracts; not an HTTP/PG acceptance claim"}
@@ -60,3 +63,4 @@ if __name__ == "__main__":
     if args.output:
         args.output.write_text(report, encoding="utf-8")
     print(report, end="")
+

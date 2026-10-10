@@ -44,6 +44,9 @@ jobs:
       - name: Test and build production artifact
         run: mvn -B -ntp clean package
 
+      - name: Test release candidate integrity and provenance
+        run: python -m unittest discover -s tests -p 'test_core_release_candidate.py'
+
       - name: Verify PostgreSQL runtime driver
         run: jar tf target/auralink-backend-0.0.1-SNAPSHOT.jar | grep -E 'BOOT-INF/lib/postgresql-[^/]+\.jar$'
 
@@ -76,3 +79,4 @@ jobs:
             exit 1
           fi
           echo "Verified promotion path: main -> release"
+
