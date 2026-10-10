@@ -40,3 +40,7 @@ application-prod.yml
 # Build output
 /target/
 *.log
+
+# Python operational tooling
+__pycache__/
+*.py[cod]
