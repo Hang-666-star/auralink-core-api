@@ -27,11 +27,15 @@ release PR 使用 Create a merge commit，保留两个长期分支的历史。�
 
 ## 当前发布边界
 
-当前 deploy.yml 的名称是 Stage Verified Core API for R25。release push 会构建 JAR、校验 R25 契约并上传 Actions artifact。**这一步不会连接生产服务器或替换正在运行的后端。** 构建成功不能记作生产部署成功。
+当前 deploy.yml 的名称是 Publish Verified Core API to R25。release push 会构建 JAR、校验 R25 契约，并将制品摘要与仓库、release SHA、Actions run ID 和 attempt 绑定后上传 artifact。候选校验也属于必需的 Build core API 检查。
 
-现有 core_publication_gate.py 禁止独立 deploy 和 dry-run，激活须经过已绑定 stage、入口、部署清单和后端制品哈希的 R25 协调发布入口。旧 Actions 中成功的 SSH 部署记录不代表当前版本仍使用旧流程。
+仓库变量 R25_DEPLOY_ENABLED 只有精确设为 true 才会执行 production 环境中的发布 job；未设置或关闭时，Actions 摘要明确记录 NOT_DEPLOYED。**当前控制器尚未安装，发布开关保持关闭，未发生生产切换。** 构建或候选校验成功不能记作生产部署成功。
 
-要实现 release 合并后自动发布，必须将确切 SHA 的已验证制品接到现有 R25 协调器，保留其部署锁、运行任务检查、服务身份检查、配对验证、上线检查和恢复流程。接通前不得仅恢复旧 deploy-core.sh deploy 命令或直接替换生产 JAR。
+启用前须安装并验收 auralink-deploy/r25 中的受信发布控制器，确认恢复入口可用、磁盘空间充足，再配置可信的 SERVER_HOST_KEY 公钥和仓库级开关。发布 job 使用 production 环境现有的 SERVER_HOST、SERVER_PORT、SERVER_USER、SERVER_SSH_KEY；SSH 严格验证预先核验的主机公钥，不动态信任扫描结果。排队的发布若已落后于 release 最新 SHA 会被拒绝。
+
+首版控制器只允许与已验收国画后端等价的 JAR payload 重打包；业务 class、资源、依赖或启动入口发生变化时拒绝发布。更新业务能力前，必须通过部署仓库 PR 更新兼容性及验收契约。这一边界不代表完整业务回归已经完成，也不能记作通用业务发布链已验收。
+
+R25 控制器保留共享部署锁、当前版本和进程身份检查、真实数据库空闲与兼容性检查、完整快照、上线验证及失败恢复。只有上线验证通过后才更新 CURRENT。超时会先尝试受控恢复；强制终止或恢复失败必须根据事务日志执行显式 recover，并重新验收，不能按自动回退成功处理。现有 core_publication_gate.py 与旧 deploy-core.sh 的限制仍保留，不可用旧独立部署命令替换协调流程。
 
 跨组件发布记录 Core SHA、兼容的 Web SHA、AI 服务版本、API/配置/数据库变化、候选验证和回退版本。协调配置由 auralink-deploy 维护；在该仓库与实际 R25 运行环境对齐前，不用其旧 Docker/SQLite 模板替换现有生产服务。
 
@@ -40,3 +44,4 @@ release PR 使用 Create a merge commit，保留两个长期分支的历史。�
 代码发布与画作批次导入分别验收。现有 tools/catalog_batch/validate.py 只校验输入文件，不证明已经写入生产 catalog_* 表；批次回滚工具也必须确认与实际生产 schema 匹配后才能使用。
 
 所有数据库和提供商凭证只通过私有环境文件或部署 Secrets 提供。贡献者不需要获得生产密钥。生产运行参数以已核验的 R25 配置为准，README 中旧 SQLite/Docker 示例不能作为当前生产操作指令。
+
