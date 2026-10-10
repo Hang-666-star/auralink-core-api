@@ -29,6 +29,17 @@ jobs:
           java-version: '17'
           cache: maven
 
+      - name: Set up Python for catalog batch guardrails
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test catalog batch validation and rollback tooling
+        run: |
+          python -m pip install --disable-pip-version-check openpyxl==3.1.5
+          python -m py_compile tools/catalog_batch/validate.py tools/catalog_batch/rollback.py
+          python -m unittest discover -s tools/catalog_batch/tests -p 'test_*.py'
+
       - name: Test and build production artifact
         run: mvn -B -ntp clean package
 
