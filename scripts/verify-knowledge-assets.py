@@ -23,6 +23,8 @@ FILES = {
     "china.json": "AURALINK_KNOWLEDGE_CHINA_SHA256",
 }
 ROOT_ENV = "AURALINK_KNOWLEDGE_SNAPSHOT_ROOT"
+MAP_ENABLED_ENV = "AURALINK_KNOWLEDGE_MAP_ENABLED"
+PROFILES = {"poetry-only": set(FILES) - {"china.json"}, "map-enabled": set(FILES)}
 MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -33,11 +35,14 @@ def require(condition, message):
 
 def load_manifest(path):
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    require(manifest.get("schemaVersion") == 1, "Unsupported manifest schema")
+    require(manifest.get("schemaVersion") == 2, "Unsupported manifest schema")
+    profile = manifest.get("releaseProfile")
+    require(profile in PROFILES, "Invalid release profile")
+    require(manifest.get("mapEnabledEnvironmentVariable") == MAP_ENABLED_ENV, "Invalid map-enabled binding")
     require(manifest.get("rootEnvironmentVariable") == ROOT_ENV, "Invalid root binding")
     entries = manifest.get("artifacts", [])
-    require(isinstance(entries, list) and len(entries) == len(FILES), "Expected three manifest artifacts")
-    require({entry.get("filename") for entry in entries} == set(FILES), "Invalid artifact filenames")
+    require(isinstance(entries, list) and len(entries) == len(PROFILES[profile]), "Invalid profile artifact count")
+    require({entry.get("filename") for entry in entries} == PROFILES[profile], "Invalid artifact filenames")
     for entry in entries:
         require(entry.get("hashEnvironmentVariable") == FILES[entry["filename"]], "Invalid hash binding")
         require(isinstance(entry.get("bytes"), int) and not isinstance(entry["bytes"], bool)
@@ -66,11 +71,16 @@ def verify(manifest, directory, require_read_only=False, check_environment=False
     require(directory.is_dir() and not directory.is_symlink(), "Snapshot root must be a real directory")
     require(all(not path.is_symlink() for path in directory.parents), "Snapshot ancestors must not be symlinks")
     directory = directory.resolve(strict=True)
-    require({path.name for path in directory.iterdir()} == set(FILES), "Delivery directory must contain exactly the three artifacts")
+    require({path.name for path in directory.iterdir()} == PROFILES[manifest["releaseProfile"]],
+            "Delivery directory must contain exactly the profile artifacts")
     paths = [directory / entry["filename"] for entry in manifest["artifacts"]]
     if require_read_only:
         check_service_permissions(directory, paths)
     if check_environment:
+        expected_map = "true" if manifest["releaseProfile"] == "map-enabled" else "false"
+        require(os.environ.get(MAP_ENABLED_ENV) == expected_map, "Runtime map-enabled binding does not match")
+        if manifest["releaseProfile"] == "poetry-only":
+            require(not os.environ.get(FILES["china.json"]), "Poetry-only configuration must exclude the map hash")
         root = os.environ.get(ROOT_ENV, "")
         require(bool(root) and Path(root).is_absolute()
                 and Path(root).resolve(strict=True) == directory, "Runtime snapshot root binding does not match")
@@ -88,7 +98,7 @@ def verify(manifest, directory, require_read_only=False, check_environment=False
                     "Runtime hash binding does not match: " + entry["filename"])
         results.append({"filename": entry["filename"], "bytes": len(data), "sha256": digest})
     return {
-        "manifestId": manifest["manifestId"], "artifacts": results,
+        "manifestId": manifest["manifestId"], "releaseProfile": manifest["releaseProfile"], "artifacts": results,
         "byteIdentity": "verified",
         "runtimeEnvironmentBindings": "verified" if check_environment else "not_checked",
         "serviceReadOnlyPermissions": "verified_for_invoking_uid" if require_read_only else "not_checked",

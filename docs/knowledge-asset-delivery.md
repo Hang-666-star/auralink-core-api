@@ -1,169 +1,113 @@
-# Knowledge external asset delivery
+# Knowledge external asset delivery: approved no-map scope
 
-This is a reviewable procedure for a future coordinated release. It installs
-neither assets nor application code by itself. Do not execute production steps
-until the deployment owners approve the business-upgrade contract and map
-redistribution evidence. The existing isolated preview stays untouched.
+This is a reviewed procedure for future coordinated release, **not an executed
+production installation**. The user approved first release without the map;
+geographic statistics and all other Knowledge features remain. Map permission
+is deferred and does not block this profile, which must neither deliver nor serve
+map bytes. Do not change the existing preview or private legacy map files.
 
-## Exact delivery identity
+## Exact candidate contract
 
-The machine-readable [manifest](knowledge-assets-manifest.json) identifies the
-three inherited files by filename, byte length, SHA-256 and configuration binding.
-It contains metadata only; obtain the actual bytes through the separately approved
-artifact delivery channel. Do not commit the runtime bundle, its archive, real
-environment files or credentials. Do not download substitute data at startup.
+The [schemaVersion 2 manifest](knowledge-assets-manifest.json) binds
+`releaseProfile=poetry-only`, `AURALINK_KNOWLEDGE_MAP_ENABLED=false`, and exactly
+`poetry-graph.json` plus `poetry-stats.json`. It records exact sizes, SHA-256 values
+and upstream revision. Actual files, archives, credentials, environments and
+production data stay outside Git. Obtain only these two files via the approved
+artifact channel; no startup download or CDN fallback is used.
 
-The reviewed source is `bailangguihun/auralink-web` revision
-`aa1da07086696835de7c361886115e602a88c471`, `public/data/`. The snapshot contract,
-graph limitations and exact hashes are in [knowledge-snapshots.md](knowledge-snapshots.md).
-The graph has 711 unique IDs and 609 edges, with matching statistics and no
-dangling endpoints. The map has 35 features, including one unnamed boundary.
-Byte identity does not establish upstream extraction accuracy, geographic accuracy
-or redistribution permission. The chart library's license is not map-dataset
-license evidence; the unresolved exact-map authorization remains a release gate.
-The [map provenance report](knowledge-map-provenance.md) records the exact
-DataV/Amap content match and the permission evidence still required.
+The real snapshot has 711 unique nodes and 609 relationships. Provenance and
+limitations are in [knowledge-snapshots.md](knowledge-snapshots.md). A future
+`map-enabled` release uses its separately reviewed three-file manifest, explicit
+true setting, map hash and permission evidence; it cannot be selected by relabeling
+a two-file directory or by weakening validation.
 
-`scripts/verify-knowledge-assets.py` is a Python standard-library, read-only
-preflight. It verifies the reviewed manifest, all three byte identities, optional
-environment bindings and optional service-account permissions. It performs no
-download, writes, API requests or provider calls. It requires exactly three
-regular files and rejects symlinks in their paths. This delivery policy is
-deliberately stricter than the runtime loader's accepted in-root symlinks.
-The tool does not duplicate the Java JSON/graph/GeoJSON validation; the existing
-Java validator and authenticated staging GETs remain authoritative for that.
+`scripts/verify-knowledge-assets.py` is read-only: it validates profile, exact file
+set, sizes and hashes, optionally environment bindings and actual service-account
+read-only access. It makes no writes, downloads, API requests or provider calls.
+It rejects symlinks in asset paths. Java still performs JSON and graph/statistics
+consistency validation; byte preflight does not replace authenticated acceptance.
 
-## Prepare a new immutable version directory
+## Future installation, NOT EXECUTED
 
-The deployment owner chooses an absolute directory outside Git, frozen application
-packages and application-owned writable trees. Record it in the c5ea/R25 release
-record. Do not infer a production path from the local preview. Use a new version
-directory, for example `<approved-asset-parent>/knowledge-legacy-aa1da070-20261012`;
-the placeholder is not an existing or approved production path.
+1. Use the approved asset parent outside Git, frozen packages and writable
+   application trees. Create a **new** version directory; do not reuse an active
+   directory or mix graph/statistics versions. Copy only the two manifest files.
+2. Derive actual service identity from the installation contract. For a non-root
+   service, use a separate asset owner and a read-only service group: typically
+   files `0440`, directory `0550`. All ancestors must allow traversal and resist
+   service writes/renames. Verify actual groups/ACLs, mounts and capabilities.
+   For the observed root-running R25 Java service, use the V2 reviewed dedicated
+   read-only mount and capability restrictions; do not claim root ownership/mode
+   bits alone provide read-only protection or invent a replacement service UID.
+3. Validate the staging directory, atomically rename it on the same filesystem,
+   and verify it again as the effective application identity. Keep the previous
+   accepted directory for rollback. The non-root CLI permission check deliberately
+   rejects root; V2 has the separate root-service mount/capability contract.
+4. Bind the exact directory, both SHA values and explicit false setting through
+   the reviewed V2 configuration transaction. Preserve all unrelated configuration,
+   especially authentication, public projection, media, PG and Critic policy.
 
-1. Check map authorization for these exact bytes. Transfer the three files to a
-   private staging directory through the approved channel and run the identity
-   preflight below. Never mix versions of the graph and statistics files.
-2. The asset administrator, distinct from the non-root application service UID,
-   creates a **new** sibling incoming directory beneath the approved asset parent.
-   Abort if the intended version or incoming directory already exists; do not
-   overwrite or reuse an existing release's assets.
-3. Copy only the three manifest files. Give them the asset administrator as owner
-   and a read-only service group, mode `0440`; give the directory the same owner
-   and group, mode `0550`. The service must not own these files or directories,
-   and must not be in an ACL/group that grants write access. Ensure every parent
-   directory permits service traversal and cannot be renamed or written by the
-   service. Use deployment-managed ownership/ACLs or a read-only mount; mode bits
-   alone do not prove access when ACLs, mounts or capabilities are involved.
-4. Run the identity and read-only preflight **as the actual service UID with its
-   actual supplementary groups**. The verifier intentionally rejects root and
-   asset-owner execution for read-only acceptance. Record mount restrictions and
-   privileged service capabilities separately; this tool cannot prove that a
-   process with mount/chown privileges will never change its own access.
-5. Atomically rename the completed incoming directory to the new version directory
-   on the same filesystem. Re-run preflight there. Do not edit an active directory
-   or graph/stats pair in place. Keep the prior accepted directory for rollback.
-
-These are future operator steps, not commands executed by this change. Ownership
-changes and installation belong to the approved deployment procedure, not to this
-read-only verifier or application startup.
-
-## Bind and verify the configuration
-
-Supply all four values in the existing private deployment configuration. Bindings
-are optional in Java for compatibility, but **all three are required by this
-delivery acceptance procedure**. No credentials belong in the following example:
+Example configuration (placeholders are not production facts):
 
 ```sh
-export AURALINK_KNOWLEDGE_SNAPSHOT_ROOT='<approved-absolute-version-directory>'
+export AURALINK_KNOWLEDGE_MAP_ENABLED=false
+export AURALINK_KNOWLEDGE_SNAPSHOT_ROOT='<approved-new-absolute-directory>'
 export AURALINK_KNOWLEDGE_GRAPH_SHA256=899511b6b7d02e6ba515986db651c67b3702497d2031bdbb75029c34491da2c0
 export AURALINK_KNOWLEDGE_STATS_SHA256=27e91284d28c05c9b7dde9fcb4181c713761d3c2eebf84816b45c9f7d9af7501
-export AURALINK_KNOWLEDGE_CHINA_SHA256=206cf7fd5acba4bb08d9586899acc144cea2b29d9e93ff70f93895c5e5ffde77
-
-# Run in the reviewed Core checkout, as the actual application service UID.
-# Its interpreter, manifest and verifier must also be readable/traversable.
+unset AURALINK_KNOWLEDGE_CHINA_SHA256
 python3 scripts/verify-knowledge-assets.py \
-  --snapshot-root "$AURALINK_KNOWLEDGE_SNAPSHOT_ROOT" \
-  --check-environment --require-read-only
+  --snapshot-root "$AURALINK_KNOWLEDGE_SNAPSHOT_ROOT" --check-environment
+# Additionally use --require-read-only only as the actual non-root service UID,
+# with its real groups; root-running R25 uses the V2 mount/capability checks.
 ```
 
-For byte identity only, omit the two switches. Successful output explicitly marks
-unchecked permissions/configuration; it never claims production acceptance or a
-license grant. Nonzero exit is a blocked delivery preflight. Failure output omits
-raw data, filesystem paths and configuration values. Do not treat a successful
-root invocation without `--require-read-only` as service-account acceptance.
+`--check-environment` verifies the invoking process only. The publisher must bind
+and inspect actual JVM configuration precedence; a successful shell check is not
+proof of effective Java settings. Poetry-only verification rejects an extra map
+file, any map hash binding, a missing/true map setting, and missing/bad poetry
+hashes. Verification output contains no raw data, filesystem paths or credentials.
+Without permission checks, output explicitly says permissions were not checked.
+No successful verifier result is production acceptance.
 
-Equivalent Spring properties are `auralink.knowledge.snapshot-root`,
-`auralink.knowledge.graph-sha256`, `auralink.knowledge.stats-sha256` and
-`auralink.knowledge.china-sha256`. If configuration uses these properties, the
-release operator must also compare the effective property values to the manifest;
-`--check-environment` verifies the invoking process environment only and cannot
-inspect JVM property precedence or prove which configuration a running JVM read.
-Record the selected directory and bindings in the coordinated release record,
-not public API responses. Activate changed configuration only through the
-approved Core lifecycle; c5ea remains the only Next lifecycle owner.
+## Isolated acceptance and recovery
 
-## Staging API acceptance and recovery
-
-Use the existing approved test authentication mechanism; never print tokens or
-create production accounts. Through the actual candidate Core, verify:
+Use existing isolated authentication; do not create production accounts or print
+tokens. Use disposable copies, never the old preview or production asset tree.
 
 | Scenario | Expected result |
 | --- | --- |
-| Anonymous GET of graph or map | Existing JSON 401; no data or paths. |
-| Valid graph pair, authenticated | 200, `Cache-Control: no-store`, the two manifest hashes, 711 nodes/609 edges and matching summaries. |
-| Valid map, authenticated | 200, `Cache-Control: no-store`, manifest SHA and 35 features; unneeded metadata omitted. |
-| Missing/unconfigured/unreadable file, wrong hash or malformed content | JSON 503 `KNOWLEDGE_SNAPSHOT_UNAVAILABLE`, no internal paths; retry remains available. |
-| Map unavailable | Painting statistics/numeric geography and poetry continue independently. |
-| Graph or stats unavailable | Painting statistics and map remain independent; no substitute graph is generated. |
-| Invalid query parameters | Existing JSON 400; paths cannot be selected by clients. |
+| Anonymous graph, statistics or map GET | Existing JSON 401. |
+| Valid two-file pair, authenticated graph GET | 200, no-store, exact hashes, 711 nodes/609 edges, matching summaries. |
+| No map file/configuration, authenticated map GET | 503 `KNOWLEDGE_SNAPSHOT_UNAVAILABLE`, explicit disabled message, no map bytes. |
+| Legacy map remains and hash supplied, but map-enabled=false | Same disabled 503 before reading map; delivery preflight still rejects including map in this release bundle. |
+| Required poetry file missing, unreadable, corrupt, wrong hash or mismatched summaries | Safe JSON 503; statistics remain independent. |
+| Restore exact approved missing/corrupt file in disposable fault-test copy | Next request succeeds without a restart; no hash check is disabled. |
+| Query parameters | Existing authenticated JSON 400; client cannot select files. |
 
-Perform missing/invalid tests against a disposable staging asset copy, never the
-user's running preview or production directory. File reads are lazy per request;
-with an unchanged configured directory and bindings, restoring the exact valid
-files makes the next request recover without an application restart. This is a
-failure test, not the approved version-update procedure. For a real update or
-repair, provision a new complete validated version directory and matching
-bindings, then coordinate the Core configuration switch/restart. If the new
-candidate fails acceptance, switch through the approved controller to the prior
-accepted Core/configuration/directory; do not restore the database or delete any
-huaniao records, existing media or user assets. Keep logs and artifact identities.
+Recovery in a real deployment uses a complete newly verified asset directory and
+approved configuration switch through R25. Never recover by blanking hashes,
+relabeling profiles, making the service an asset owner, or relaxing authentication.
+Application rollback uses only the verified compatible baseline and configuration,
+retaining database contents, huaniao records, tasks and media. No database restore
+or arbitrary historical-JAR downgrade is part of application recovery.
 
-When asset hashes change, changing files alone while retaining the old configured
-hashes must remain a 503. Never recover by disabling hash checks, making the
-service an asset owner, or relaxing authentication. A configuration switch is
-not hot-reloaded by this component. Production rollback is not validated by the
-isolated evidence described below.
+The required production order remains reviewed V1 controller installation → V2
+upgrade → Core → c5ea Web. c5ea is the sole Next lifecycle owner. Feature pushes
+and main PR CI do not authorize activation. The equivalent-repackaging path cannot
+carry these new business endpoints.
 
-## Evidence and remaining acceptance
+## Evidence scope
 
-The 2026-10-12 isolated migration already verified the real graph/map integrity,
-safe missing-snapshot JSON 503 followed by recovery, and unavailable/retry UI;
-the shared handoff records the existing unit, HTTP and browser artifacts.
-This procedure adds only the missing byte/configuration/permission preflight and
-synthetic tool tests:
+Run the focused standard-library tests with:
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_knowledge_assets.py'
-python3 scripts/verify-knowledge-assets.py --snapshot-root '<local-existing-snapshot-directory>'
+python3 -B -m unittest discover -s tests -p 'test_knowledge_assets.py'
 ```
 
-The actual developer preview has developer-owned `0644` files and a `0755`
-directory. Byte checks can pass there; the formal `--require-read-only` check
-must reject its ownership. Do not change this running preview to claim release
-acceptance. Permission-positive unit cases simulate access(2); actual staging
-service-account permissions, mount/capability restrictions, effective JVM
-configuration, exact map licensing, asset transport and coordinated rollback
-remain release-stage checks. The Core equivalent-repackaging publisher cannot
-carry these new business endpoints; this asset procedure does not remove that
-separate business-upgrade requirement.
-
-On 2026-10-12, the eight synthetic verifier tests passed on Python 3.12.3 (the
-isolated repository tool environment) and Python 3.13.12. Read-only verification
-of the existing external files and the four selected Knowledge environment
-bindings read from the running isolated Java process passed; no other process
-environment values were printed or recorded. Adding `--require-read-only`
-correctly rejected this developer-owned directory. Local handoff evidence is
-`evidence/KNOWLEDGE_ASSET_PREFLIGHT.json` and
-`evidence/knowledge-asset-preflight-tests-python312.log`, outside Git. No assets, permissions,
-configuration, services or preview builds were modified for these checks.
+The tests cover both profiles, required hashes, missing/extra files, tampering,
+symlinks, configuration mismatch, and simulated permission refusal. Mocked
+access(2) tests are not production permission acceptance. Prior real isolated
+installation/mount/readability/recovery evidence remains documented in the
+shared handoff; new no-map HTTP/browser and V2 evidence is recorded separately.
+The original map-enabled preview and prior 10,000-record statistics evidence are
+not relabeled as new no-map artifact verification.

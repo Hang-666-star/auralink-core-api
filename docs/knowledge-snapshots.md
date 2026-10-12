@@ -1,97 +1,109 @@
 # Knowledge runtime snapshots
 
-The Knowledge module reads an existing poetry export and map from a separately
-provisioned, server-local directory. These are runtime data, not source code.
-Do not commit production CSV, GraphML, graph/map snapshots, database files or
-credentials. Only synthetic test fixtures belong in this repository.
+The approved first release is **poetry-only, with geographic statistics retained**.
+Its runtime asset set contains only `poetry-graph.json` and `poetry-stats.json`.
+Painting geography remains PostgreSQL-backed aggregate data; no geographic map is
+packaged, requested by the Web candidate, or served by this Core profile.
+Runtime data and credentials stay outside Git. Only synthetic test fixtures are
+committed. No model, remote download, new extraction, or database migration is used.
 
-Release preparation: [exact asset manifest](knowledge-assets-manifest.json),
-[delivery and read-only verification](knowledge-asset-delivery.md),
-[map source and permission evidence](knowledge-map-provenance.md), and
-[Core business-upgrade proposal](knowledge-core-upgrade-proposal.md).
-These documents do not authorize production publication or grant dataset rights.
+Release references: [two-file manifest](knowledge-assets-manifest.json),
+[delivery procedure](knowledge-asset-delivery.md), and
+[coordinated Core business upgrade](knowledge-core-upgrade-proposal.md).
+Map redistribution is deferred to a future map-enabled release and is not a
+condition of this candidate, provided that the map is neither delivered nor served.
+The separately retained [map-enabled manifest](knowledge-map-enabled-assets-manifest.json)
+and [permission record](knowledge-map-provenance.md) do not authorize that release.
 
-Configure `AURALINK_KNOWLEDGE_SNAPSHOT_ROOT` (or Spring property
-`auralink.knowledge.snapshot-root`) to an absolute directory containing:
+## Selected configuration
 
-- `poetry-graph.json`
-- `poetry-stats.json`
-- `china.json`
+Set `auralink.knowledge.map-enabled=false` (environment variable
+`AURALINK_KNOWLEDGE_MAP_ENABLED=false`). It defaults to false, but the V2 release
+contract binds an explicit false value to the approved candidate. Also set:
 
-Optional SHA-256 bindings are `AURALINK_KNOWLEDGE_GRAPH_SHA256`,
-`AURALINK_KNOWLEDGE_STATS_SHA256`, `AURALINK_KNOWLEDGE_CHINA_SHA256`
-(Spring properties `auralink.knowledge.graph-sha256`, `stats-sha256`, `china-sha256`).
-Use the bindings in a reviewed release configuration. No default production path
-or remote download is provided. The loader has no relationship to Guide provider
-invocation and does not change Guide/Critic configuration.
+| Spring property | Environment variable | Requirement |
+| --- | --- | --- |
+| `auralink.knowledge.snapshot-root` | `AURALINK_KNOWLEDGE_SNAPSHOT_ROOT` | Absolute directory containing the two poetry files. |
+| `auralink.knowledge.graph-sha256` | `AURALINK_KNOWLEDGE_GRAPH_SHA256` | Required exact graph SHA-256. |
+| `auralink.knowledge.stats-sha256` | `AURALINK_KNOWLEDGE_STATS_SHA256` | Required exact statistics SHA-256. |
+
+The selected no-map configuration excludes `china-sha256` and its environment
+variable. No map configuration or file is needed for startup, painting statistics,
+or poetry. Even if a legacy map and its hash remain on disk/in runtime settings,
+`map-enabled=false` refuses the map **before reading any map file or hash**. The
+delivery verifier is stricter: a poetry-only delivery directory must contain
+exactly the two required files and its environment must not include a map hash.
+
+Snapshot checks are lazy, per-request and retryable. Missing root, missing/invalid
+hashes, inaccessible or malformed files do not prevent application startup, but
+the affected endpoint returns the existing safe JSON 503. No default production
+path or remote fallback exists. Guide/Critic configuration remains unchanged.
 
 ## API contract
 
-All three Knowledge GET routes require the existing authenticated session.
-`GET /api/v1/knowledge/poetry-graph` accepts no query parameters. It returns
-`schemaVersion`, `source=legacy-poetry-snapshot`, byte-level `graphSha256` and
-`statsSha256`, `nodeCount`, `edgeCount`, `nodes`, `links`, `entityTypes`,
-`relationTypes`, and `sourceLimits`. Nodes contain id/name/category/size/description;
-links contain source/target/value/label/summary/detail. Summary items contain
-name/value. Relationships and uncertain labels are preserved exactly; no new
-edges, translations or knowledge corrections are generated.
+All three Knowledge GET routes retain existing session authentication. Anonymous
+requests receive the normal JSON 401. Unknown query parameters receive existing
+JSON 400. No route lets clients select paths or runtime configuration.
 
-`GET /api/v1/knowledge/china-map` accepts no query parameters. It returns a
-GeoJSON FeatureCollection plus the original byte-level SHA-256. Each feature
-contains its name and Polygon/MultiPolygon coordinates; unused metadata is not
-exposed. The inherited file has one unnamed boundary feature, retained as such.
-Failure of this endpoint does not disable painting statistics or poetry.
+- `/api/v1/knowledge/painting-statistics` retains the existing Gallery population,
+  public projection, field coverage and metric contract, including numeric geography.
+- `/api/v1/knowledge/poetry-graph` returns `schemaVersion`,
+  `source=legacy-poetry-snapshot`, byte-level `graphSha256`/`statsSha256`,
+  `nodeCount`, `edgeCount`, `nodes`, `links`, `entityTypes`, `relationTypes`,
+  and `sourceLimits`. Nodes contain id/name/category/size/description; links
+  source/target/value/label/summary/detail. Summary items contain name/value.
+  Original uncertain labels and relationships are preserved; no edges are generated.
+- `/api/v1/knowledge/china-map` in this release returns HTTP 503,
+  `code=KNOWLEDGE_SNAPSHOT_UNAVAILABLE`, message
+  `此版本未启用地理底图；地域统计仍可读取。`. It never returns map features or hash.
+  Invalid parameters still return 400 after authentication.
 
-Responses use `Cache-Control: no-store`. Unknown query parameters produce the
-existing JSON 400 error contract. Missing/unconfigured/malformed/hash-mismatched
-artifacts return JSON 503 `KNOWLEDGE_SNAPSHOT_UNAVAILABLE` without filesystem
-paths. Missing snapshots do not prevent application startup or other modules.
-Reads are lazy and retryable: a subsequent request revalidates the files. Files
-must resolve directly beneath the configured root; escaped symlinks are rejected.
-Each file is bounded to 8 MiB, graph nodes to 2,000, edges to 10,000, map features
-to 100. Duplicate JSON keys/trailing documents, duplicate node IDs, dangling
-endpoints, nonfinite numbers and inconsistent summary counts are rejected.
-Polygon and MultiPolygon linear rings must contain at least four positions and
-close with coordinates numerically equal to their first position; short or open
-rings return the same safe JSON 503 as other malformed snapshots.
-Clients must render every label/description as text, never trusted HTML.
+Successful snapshots use `Cache-Control: no-store`. Unavailable errors contain no
+filesystem paths. Required SHA-256 bindings must be 64 hexadecimal characters and
+match the actual bytes; blank bindings do not bypass integrity validation.
+Files must resolve directly beneath the configured root; escaped symlinks are
+rejected. Bounds: 8 MiB per file, 2,000 nodes and 10,000 edges. Duplicate JSON
+keys/trailing documents, duplicate IDs, dangling endpoints, nonfinite numbers and
+inconsistent summary counts are rejected. Render all labels/descriptions as text.
 
-## Existing artifacts validated locally on 2026-10-12
+## Existing poetry artifacts validated locally
 
-The source is the inherited `auralink-web` repository under GitHub account
-`bailangguihun`, revision `aa1da07086696835de7c361886115e602a88c471`,
-`public/data/`. Its Database files were also previously hash-matched against
-the ignored legacy AutoDL frontend. The new source repositories do not contain
-these data files.
+Source: inherited `bailangguihun/auralink-web` revision
+`aa1da07086696835de7c361886115e602a88c471`, `public/data/`, previously hash-matched
+against the ignored legacy AutoDL frontend. The new repositories do not contain
+these files.
 
 | File | Bytes | SHA-256 |
-|---|---:|---|
+| --- | ---: | --- |
 | poetry-graph.json | 528422 | `899511b6b7d02e6ba515986db651c67b3702497d2031bdbb75029c34491da2c0` |
 | poetry-stats.json | 20130 | `27e91284d28c05c9b7dde9fcb4181c713761d3c2eebf84816b45c9f7d9af7501` |
-| china.json | 582521 | `206cf7fd5acba4bb08d9586899acc144cea2b29d9e93ff70f93895c5e5ffde77` |
 
-Graph: 711 unique nodes, 609 edges, no dangling endpoints. Summaries must match
-actual category counts and first-comma-separated relation labels, as produced by
-the existing `scripts/convert-graphml.js`. Its purported source GraphML is missing.
-Counts for categories containing “诗词”/“诗人” are not verified distinct works or
-people. The snapshot is not a PostgreSQL graph, has not had its upstream extraction
-accuracy independently verified, and does not automatically include new paintings.
+The graph contains 711 unique nodes and 609 edges, without dangling endpoints.
+Summary counts match categories and first-comma-separated relation labels from
+legacy `scripts/convert-graphml.js`. Original GraphML is missing; upstream
+extraction accuracy is not independently verified. Categories containing “诗词”
+or “诗人” do not establish verified distinct works or people. This is a file
+snapshot, not a PostgreSQL graph, and painting ingestion does not extend it.
 
-Map: 35 inherited GeoJSON features. This establishes the inherited artifact's
-identity, not its upstream authorship/license or geographic accuracy. Reuse is
-limited to the project's existing map purpose; confirm redistribution permissions
-when preparing a release. Provision all runtime files outside Git and the frozen
-application release, through the separately reviewed deployment configuration.
+Application access must be read/traverse only, enforced by separate ownership or
+a read-only mount. Hashes alone do not prove permissions. The original isolated
+preview uses developer-owned files and is not production ownership acceptance.
+Update assets using a complete new verified directory and bound configuration;
+never edit an active graph/stats pair in place. Application rollback needs no
+database restore and must retain all huaniao data, user data, tasks and media.
 
-Release delivery must give the application account read/traverse access without
-write access to the files or their containing directory, using a separate asset
-owner or a read-only mount. Hash bindings verify identity but do not enforce OS
-permissions. The isolated developer preview uses owner-writable 0644 files for
-retry/fault tests; it is not evidence of production read-only ownership. Before
-release, verify all three bindings and permissions as the service account, and
-verify missing-file 503/retry behavior in the approved staging environment.
+## Retained future map-enabled mode
 
-For updates, validate a new complete directory and bindings before switching the
-runtime configuration; do not edit a live graph/stats pair in place. Rolling back
-application code requires no data migration or removal of these artifacts and
-must retain all existing huaniao data/media.
+Only a separately reviewed `map-enabled=true` configuration can use `china.json`.
+It requires `auralink.knowledge.china-sha256` / `AURALINK_KNOWLEDGE_CHINA_SHA256`
+and the three-file `map-enabled` manifest. Map integrity and permissions remain
+mandatory. Missing, mismatched or malformed maps return safe JSON 503 independently
+of poetry/statistics. GeoJSON FeatureCollection output retains only feature name
+and Polygon/MultiPolygon coordinates, with a maximum of 100 features; rings need
+at least four positions and numerically equal first/last coordinates.
+
+The inherited map is 582521 bytes, SHA-256
+`206cf7fd5acba4bb08d9586899acc144cea2b29d9e93ff70f93895c5e5ffde77`,
+35 features including one unnamed boundary. Its redistribution permission remains
+unresolved. Keeping this validator and metadata is not permission to deliver or
+serve the map. Existing private map files remain untouched.

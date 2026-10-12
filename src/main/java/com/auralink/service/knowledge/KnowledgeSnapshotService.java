@@ -24,22 +24,25 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-/** Reads only three fixed local filenames. Never downloads, writes, or calls a model. */
+/** Reads fixed local poetry filenames; map access requires explicit opt-in. Never writes or downloads. */
 @Service
 public class KnowledgeSnapshotService {
    private static final int MAX_BYTES = 8 * 1024 * 1024;
    private final ObjectMapper mapper;
    private final String root;
+   private final boolean mapEnabled;
    private final Map<String, String> expectedHashes;
 
    public KnowledgeSnapshotService(ObjectMapper mapper,
       @Value("${auralink.knowledge.snapshot-root:${AURALINK_KNOWLEDGE_SNAPSHOT_ROOT:}}") String root,
       @Value("${auralink.knowledge.graph-sha256:${AURALINK_KNOWLEDGE_GRAPH_SHA256:}}") String graphHash,
       @Value("${auralink.knowledge.stats-sha256:${AURALINK_KNOWLEDGE_STATS_SHA256:}}") String statsHash,
-      @Value("${auralink.knowledge.china-sha256:${AURALINK_KNOWLEDGE_CHINA_SHA256:}}") String chinaHash) {
+      @Value("${auralink.knowledge.china-sha256:${AURALINK_KNOWLEDGE_CHINA_SHA256:}}") String chinaHash,
+      @Value("${auralink.knowledge.map-enabled:${AURALINK_KNOWLEDGE_MAP_ENABLED:false}}") boolean mapEnabled) {
       this.mapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
          .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
       this.root = root;
+      this.mapEnabled = mapEnabled;
       this.expectedHashes = Map.of("poetry-graph.json", graphHash, "poetry-stats.json", statsHash, "china.json", chinaHash);
    }
 
@@ -90,6 +93,9 @@ public class KnowledgeSnapshotService {
    }
 
    public ChinaMapResponse china() {
+      // The poetry-only release must never inspect or serve old map files, even
+      // if a previous deployment left a valid file and hash configured.
+      if (!mapEnabled) throw unavailable("此版本未启用地理底图；地域统计仍可读取。");
       try {
          Artifact map = read("china.json");
          require("FeatureCollection".equals(map.json().path("type").asText()));
@@ -128,7 +134,7 @@ public class KnowledgeSnapshotService {
       try { hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
       catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
       String expected = expectedHashes.get(filename);
-      require(expected == null || expected.isBlank() || hash.equalsIgnoreCase(expected));
+      require(expected != null && expected.matches("[0-9a-fA-F]{64}") && hash.equalsIgnoreCase(expected));
       JsonNode json = mapper.readTree(bytes);
       require(json != null && json.isObject());
       return new Artifact(json, hash);

@@ -1,5 +1,9 @@
 # Knowledge map provenance and release permission
 
+> Deferred: the approved first release is `poetry-only` and does not package or
+> serve this map. The permission questions below apply to a future map-enabled
+> release; they no longer block the explicitly disabled-map candidate.
+
 Checked on 2026-10-12. This report records an exact dataset match and the remaining
 permission requirement; it does not grant a redistribution licence. No map bytes
 were added to this repository, and the isolated preview was left unchanged.

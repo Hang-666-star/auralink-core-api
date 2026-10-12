@@ -1,5 +1,13 @@
 # Knowledge 的 Core 业务升级发布提案
 
+> Approved first-release update: use the `poetry-only` two-file manifest and
+> explicit `auralink.knowledge.map-enabled=false`. The original map-enabled
+> proposal below is historical where it describes three files/map approval.
+> Current no-map contracts are [snapshots](knowledge-snapshots.md) and
+> [asset delivery](knowledge-asset-delivery.md); geography statistics remain.
+> Deploy V2 must bind the selected profile and exact configuration; no equivalent
+> repackaging exception or production activation authorization is implied.
+
 状态：2026-10-12 的**待实现、待独立审查提案**。本文件没有修改 Deploy 控制器、安装控制器、启用发布开关或授权生产操作。两个业务 PR 可以继续评审；本提案不将现有发布器描述为已支持 Knowledge。
 
 ## 已核实的缺口
