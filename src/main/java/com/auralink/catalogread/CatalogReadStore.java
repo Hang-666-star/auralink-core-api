@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.Optional;
 
 public interface CatalogReadStore {
+   com.auralink.api.v1.knowledge.PaintingStatisticsResponse paintingStatistics();
+
    CatalogReadStore.CatalogPage list(CatalogReadStore.CatalogQuery query);
 
    Optional<CatalogReadStore.CatalogPainting> findPainting(String publicId);
