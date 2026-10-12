@@ -1,0 +1,7 @@
+# Every production change requires review from the repository owner.
+* @Hang-666-star
+
+# Data ingestion and database changes are explicitly owner-controlled.
+/tools/catalog_batch/ @Hang-666-star
+/src/main/resources/db/migration/ @Hang-666-star
+/.github/workflows/ @Hang-666-star
