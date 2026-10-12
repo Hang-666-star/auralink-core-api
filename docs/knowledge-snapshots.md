@@ -5,6 +5,12 @@ provisioned, server-local directory. These are runtime data, not source code.
 Do not commit production CSV, GraphML, graph/map snapshots, database files or
 credentials. Only synthetic test fixtures belong in this repository.
 
+Release preparation: [exact asset manifest](knowledge-assets-manifest.json),
+[delivery and read-only verification](knowledge-asset-delivery.md),
+[map source and permission evidence](knowledge-map-provenance.md), and
+[Core business-upgrade proposal](knowledge-core-upgrade-proposal.md).
+These documents do not authorize production publication or grant dataset rights.
+
 Configure `AURALINK_KNOWLEDGE_SNAPSHOT_ROOT` (or Spring property
 `auralink.knowledge.snapshot-root`) to an absolute directory containing:
 

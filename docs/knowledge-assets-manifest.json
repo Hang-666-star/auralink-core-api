@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "knowledge-legacy-aa1da070-20261012",
+  "deliveryStatus": "review-only; map redistribution authorization unresolved",
+  "source": {
+    "repository": "https://github.com/bailangguihun/auralink-web",
+    "revision": "aa1da07086696835de7c361886115e602a88c471",
+    "directory": "public/data",
+    "verifiedDate": "2026-10-12",
+    "limits": [
+      "Original GraphML has not been found.",
+      "Upstream poetry extraction accuracy has not been independently verified.",
+      "The graph is a file snapshot, not a PostgreSQL graph and not updated by painting ingestion.",
+      "The exact map bytes are identified; a chart-library license is not a map dataset redistribution license."
+    ]
+  },
+  "rootEnvironmentVariable": "AURALINK_KNOWLEDGE_SNAPSHOT_ROOT",
+  "artifacts": [
+    {
+      "filename": "poetry-graph.json",
+      "bytes": 528422,
+      "sha256": "899511b6b7d02e6ba515986db651c67b3702497d2031bdbb75029c34491da2c0",
+      "hashEnvironmentVariable": "AURALINK_KNOWLEDGE_GRAPH_SHA256",
+      "verifiedFacts": {"uniqueNodeIds": 711, "edges": 609, "danglingEndpoints": 0}
+    },
+    {
+      "filename": "poetry-stats.json",
+      "bytes": 20130,
+      "sha256": "27e91284d28c05c9b7dde9fcb4181c713761d3c2eebf84816b45c9f7d9af7501",
+      "hashEnvironmentVariable": "AURALINK_KNOWLEDGE_STATS_SHA256",
+      "verifiedFacts": {"graphOverviewAndDistributionsMatch": true}
+    },
+    {
+      "filename": "china.json",
+      "bytes": 582521,
+      "sha256": "206cf7fd5acba4bb08d9586899acc144cea2b29d9e93ff70f93895c5e5ffde77",
+      "hashEnvironmentVariable": "AURALINK_KNOWLEDGE_CHINA_SHA256",
+      "verifiedFacts": {"features": 35, "unnamedBoundaryFeatures": 1},
+      "redistributionAuthorization": "unresolved for these exact bytes; release gate remains open"
+    }
+  ]
+}
