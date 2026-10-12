@@ -13,7 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** MVC JSON contract; actual SecurityConfig authentication is covered by isolated HTTP acceptance. */
 class KnowledgeSnapshotControllerTest {
    @Test void disabledMapReturnsExistingSafeUnavailableContractWithoutConfiguration() throws Exception {
-      var snapshots = new KnowledgeSnapshotService(new ObjectMapper(), "", "", "", "", false);
+      var snapshots = new KnowledgeSnapshotService(new ObjectMapper(), "", "", "", "", false, "filesystem");
       var mvc = MockMvcBuilders.standaloneSetup(new KnowledgeSnapshotController(snapshots))
          .setControllerAdvice(new ApiV1ExceptionHandler()).build();
       mvc.perform(get("/api/v1/knowledge/china-map"))
