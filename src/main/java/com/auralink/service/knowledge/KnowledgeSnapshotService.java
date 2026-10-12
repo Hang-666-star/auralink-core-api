@@ -24,12 +24,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-/** Reads fixed local poetry filenames; map access requires explicit opt-in. Never writes or downloads. */
+/** Reads fixed local poetry files or inherited sealed descriptors; never writes or downloads. */
 @Service
 public class KnowledgeSnapshotService {
    private static final int MAX_BYTES = 8 * 1024 * 1024;
    private final ObjectMapper mapper;
    private final String root;
+   private final String transport;
    private final boolean mapEnabled;
    private final Map<String, String> expectedHashes;
 
@@ -38,10 +39,12 @@ public class KnowledgeSnapshotService {
       @Value("${auralink.knowledge.graph-sha256:${AURALINK_KNOWLEDGE_GRAPH_SHA256:}}") String graphHash,
       @Value("${auralink.knowledge.stats-sha256:${AURALINK_KNOWLEDGE_STATS_SHA256:}}") String statsHash,
       @Value("${auralink.knowledge.china-sha256:${AURALINK_KNOWLEDGE_CHINA_SHA256:}}") String chinaHash,
-      @Value("${auralink.knowledge.map-enabled:${AURALINK_KNOWLEDGE_MAP_ENABLED:false}}") boolean mapEnabled) {
+      @Value("${auralink.knowledge.map-enabled:${AURALINK_KNOWLEDGE_MAP_ENABLED:false}}") boolean mapEnabled,
+      @Value("${auralink.knowledge.snapshot-transport:${AURALINK_KNOWLEDGE_SNAPSHOT_TRANSPORT:filesystem}}") String transport) {
       this.mapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
          .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
       this.root = root;
+      this.transport = transport;
       this.mapEnabled = mapEnabled;
       this.expectedHashes = Map.of("poetry-graph.json", graphHash, "poetry-stats.json", statsHash, "china.json", chinaHash);
    }
@@ -87,7 +90,7 @@ public class KnowledgeSnapshotService {
                "现有诗词图谱文件快照，未存入本功能的 PostgreSQL 图谱表。",
                "原始 GraphML 未找到，上游提取准确性未经独立验证；保留原有标签与关系。",
                "图谱不会自动包含新增绘画记录；类别统计不等于已核实的诗作或人物数量。"));
-      } catch (IOException | IllegalArgumentException exception) {
+      } catch (IOException | IllegalArgumentException | UnsupportedOperationException exception) {
          throw unavailable("诗词图谱快照不可用：文件缺失、完整性不符或格式校验失败，请联系管理员检查快照配置。");
       }
    }
@@ -123,9 +126,27 @@ public class KnowledgeSnapshotService {
 
    private Artifact read(String filename) throws IOException {
       if (root == null || root.isBlank()) throw unavailable("知识快照尚未配置，请管理员设置快照目录。");
-      Path directory = Path.of(root).toRealPath();
-      Path file = directory.resolve(filename).toRealPath();
-      require(file.getParent().equals(directory) && Files.isRegularFile(file));
+      Path file;
+      if ("filesystem".equals(transport)) {
+         Path directory = Path.of(root).toRealPath();
+         file = directory.resolve(filename).toRealPath();
+         require(file.getParent().equals(directory));
+      } else if ("sealed-memfd-v1".equals(transport)) {
+         // The root remains the approved durable-source identity. Live reads use
+         // only the fixed descriptors inherited from the coordinated launcher.
+         // Core checks bytes/anonymous-file shape, not F_GET_SEALS: the launcher
+         // and coordinator must independently verify kernel seals before/after exec.
+         require(!mapEnabled && Path.of(root).isAbsolute());
+         file = switch (filename) {
+            case "poetry-graph.json" -> Path.of("/proc/self/fd/198");
+            case "poetry-stats.json" -> Path.of("/proc/self/fd/199");
+            default -> throw new IllegalArgumentException("Invalid snapshot transport");
+         };
+         require(((Number) Files.getAttribute(file, "unix:nlink")).longValue() == 0);
+      } else {
+         throw new IllegalArgumentException("Invalid snapshot transport");
+      }
+      require(Files.isRegularFile(file));
       require(Files.size(file) <= MAX_BYTES);
       byte[] bytes;
       try (var stream = Files.newInputStream(file)) { bytes = stream.readNBytes(MAX_BYTES + 1); }

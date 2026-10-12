@@ -42,7 +42,7 @@ class KnowledgeSnapshotServiceTest {
    private KnowledgeSnapshotService service(boolean mapEnabled) {
       return new KnowledgeSnapshotService(mapper, directory.toString(), hash("poetry-graph.json"),
          Files.exists(directory.resolve("poetry-stats.json")) ? hash("poetry-stats.json") : "0".repeat(64),
-         mapEnabled ? hash("china.json") : "", mapEnabled);
+         mapEnabled ? hash("china.json") : "", mapEnabled, "filesystem");
    }
 
    @Test void validatesSnapshotAndPreservesUntrustedTextAndOriginalRelations() {
@@ -79,7 +79,7 @@ class KnowledgeSnapshotServiceTest {
       assertEquals(2, service().graph().nodeCount());
    }
    @Test void hashBindingAndSymlinkEscapeFailClosed() throws Exception {
-      var badHash = new KnowledgeSnapshotService(mapper, directory.toString(), "0".repeat(64), hash("poetry-stats.json"), "", false);
+      var badHash = new KnowledgeSnapshotService(mapper, directory.toString(), "0".repeat(64), hash("poetry-stats.json"), "", false, "filesystem");
       assertThrows(ApiV1Exception.class, badHash::graph);
       Path sibling = directory.resolveSibling(directory.getFileName() + "-outside.json");
       Files.writeString(sibling, STATS);
@@ -90,7 +90,7 @@ class KnowledgeSnapshotServiceTest {
       } finally { Files.deleteIfExists(sibling); }
    }
    @Test void missingConfigurationDoesNotPreventOtherApplicationFeatures() {
-      var missing = new KnowledgeSnapshotService(mapper, "", "", "", "", false);
+      var missing = new KnowledgeSnapshotService(mapper, "", "", "", "", false, "filesystem");
       assertEquals(503, assertThrows(ApiV1Exception.class, missing::graph).getStatus().value());
    }
    @Test void emptyGraphIsAValidSnapshotAndMapValidationIsIndependent() throws Exception {
@@ -127,7 +127,7 @@ class KnowledgeSnapshotServiceTest {
 
    @Test void noMapModeNeverLoadsMapEvenWithOldValidFileAndBinding() throws Exception {
       var disabled = new KnowledgeSnapshotService(mapper, directory.toString(), hash("poetry-graph.json"),
-         hash("poetry-stats.json"), hash("china.json"), false);
+         hash("poetry-stats.json"), hash("china.json"), false, "filesystem");
       for (int attempt = 0; attempt < 3; attempt++) {
          ApiV1Exception error = assertThrows(ApiV1Exception.class, disabled::china);
          assertEquals(503, error.getStatus().value());
@@ -145,8 +145,8 @@ class KnowledgeSnapshotServiceTest {
       assertEquals(2, service(false).graph().nodeCount());
       String graphHash = hash("poetry-graph.json"), statsHash = hash("poetry-stats.json");
       for (String invalid : List.of("", "invalid", "0".repeat(64))) {
-         assertThrows(ApiV1Exception.class, () -> new KnowledgeSnapshotService(mapper, directory.toString(), invalid, statsHash, "", false).graph());
-         assertThrows(ApiV1Exception.class, () -> new KnowledgeSnapshotService(mapper, directory.toString(), graphHash, invalid, "", false).graph());
+         assertThrows(ApiV1Exception.class, () -> new KnowledgeSnapshotService(mapper, directory.toString(), invalid, statsHash, "", false, "filesystem").graph());
+         assertThrows(ApiV1Exception.class, () -> new KnowledgeSnapshotService(mapper, directory.toString(), graphHash, invalid, "", false, "filesystem").graph());
       }
       var bound = service(false);
       Files.writeString(directory.resolve("poetry-stats.json"), "invalid JSON");
@@ -172,7 +172,7 @@ class KnowledgeSnapshotServiceTest {
    }
 
    @Test void mapEnabledStillRequiresItsOwnHashAndValidAsset() {
-      var enabled = new KnowledgeSnapshotService(mapper, directory.toString(), hash("poetry-graph.json"), hash("poetry-stats.json"), "", true);
+      var enabled = new KnowledgeSnapshotService(mapper, directory.toString(), hash("poetry-graph.json"), hash("poetry-stats.json"), "", true, "filesystem");
       assertEquals(503, assertThrows(ApiV1Exception.class, enabled::china).getStatus().value());
       assertEquals(2, enabled.graph().nodeCount());
    }
