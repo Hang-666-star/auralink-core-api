@@ -178,7 +178,7 @@ class PaintingStatisticsPostgresTest {
          value(n,"legacy.style","public","工笔、写意"); value(n,"legacy.artistic_conception","public","宁静");
          value(n,"legacy.music_scene_description","public","欢快");
       }
-      assertSameRowsAsPreviousRegionSelection();
+      assertSameRowsAsPreviousQuery();
       var response=store.paintingStatistics();
       assertEquals(12,response.population().count());
       assertEquals(8,response.authorNames().count());
@@ -205,7 +205,7 @@ class PaintingStatisticsPostgresTest {
       }
       jdbc.execute("ANALYZE catalog_paintings");jdbc.execute("ANALYZE catalog_source_records");
       jdbc.execute("ANALYZE catalog_annotation_field_definitions");jdbc.execute("ANALYZE catalog_annotation_revisions");
-      assertSameRowsAsPreviousRegionSelection();
+      assertSameRowsAsPreviousQuery();
       var response=store.paintingStatistics();
       assertEquals(390,response.population().count());
       assertEquals(13,response.authorNames().count());
@@ -215,21 +215,123 @@ class PaintingStatisticsPostgresTest {
       assertEquals(0,metric(response,"geography").missingOrRestrictedRecords());
    }
 
-   private void assertSameRowsAsPreviousRegionSelection() throws Exception {
+   @Test void sharedFileDefinitionsDoNotMultiplyAnnotationScansOrExposePrivateFields() throws Exception {
+      // Three shared source files, including a huaniao-shaped file and a file
+      // with restricted author/geography/style. Keep planner statistics absent,
+      // as in the installation which exposed repeated per-field record scans.
+      jdbc.execute("""
+         CREATE TABLE shared_records AS
+         SELECT n, n %% 3 AS cohort, md5('shared-annotation-' || n)::uuid AS id
+         FROM generate_series(1,384) n
+         """.replace("%%","%"));
+      jdbc.execute("""
+         INSERT INTO catalog_paintings
+         SELECT id,'%s'::uuid,2,'synthetic shared file','PRIVATE_CORE_AUTHOR','PRIVATE_CORE_CATEGORY',
+           'ACTIVE','READY',NULL FROM shared_records
+         """.formatted(batch));
+      jdbc.execute("""
+         INSERT INTO catalog_source_records
+         SELECT '%s'::uuid,2,'shared-' || cohort,n,id,'shared:' || n,'VALID' FROM shared_records
+         """.formatted(batch));
+      jdbc.execute("""
+         CREATE TABLE shared_values AS
+         SELECT r.*,v.field_key,v.value FROM shared_records r CROSS JOIN LATERAL (VALUES
+           ('core.author_name','合成作者' || (n % 16)),
+           ('core.category',CASE WHEN cohort=1 THEN '花鸟' ELSE '山水' END),
+           ('legacy.author_birth_place','江苏苏州'),
+           ('legacy.creation_dynasty_raw','宋'),
+           (CASE WHEN cohort=1 THEN 'annotation.style' ELSE 'legacy.style' END,'工笔、写意'),
+           ('legacy.music_scene_description','欢快'),
+           ('legacy.artistic_conception','宁静'),
+           ('annotation.subject_secondary','花鸟、春日')
+         ) v(field_key,value)
+         UNION ALL
+         SELECT r.*,'annotation.extra_' || x,'UNMAPPED_SECRET_' || x
+         FROM shared_records r CROSS JOIN generate_series(1,20) x
+         """);
+      jdbc.execute("""
+         INSERT INTO catalog_annotation_field_definitions
+         SELECT DISTINCT '%s'::uuid,2,'shared-' || cohort,field_key,
+           CASE WHEN cohort=2 AND field_key IN ('core.author_name','legacy.author_birth_place','legacy.style')
+             THEN 'hidden' ELSE 'public' END FROM shared_values
+         """.formatted(batch));
+      jdbc.execute("""
+         INSERT INTO catalog_annotation_revisions
+         SELECT '%s'::uuid,2,'shared-' || cohort,n,field_key,value,value,'PRESENT','UNSPECIFIED'
+         FROM shared_values
+         """.formatted(batch));
+      jdbc.execute("CREATE UNIQUE INDEX shared_source_key ON catalog_source_records(batch_id,revision,annotation_file_id,record_number)");
+      jdbc.execute("CREATE INDEX shared_source_painting ON catalog_source_records(painting_id)");
+      jdbc.execute("CREATE UNIQUE INDEX shared_field_key ON catalog_annotation_field_definitions(batch_id,revision,annotation_file_id,field_key)");
+      jdbc.execute("CREATE UNIQUE INDEX shared_annotation_key ON catalog_annotation_revisions(batch_id,revision,annotation_file_id,record_number,field_key)");
+      assertSameRowsAsPreviousQuery();
+      var response=store.paintingStatistics();
+      assertEquals(384,response.population().count());
+      assertEquals(16,response.authorNames().count());
+      assertEquals(256,response.authorNames().eligibleRecords());
+      assertEquals(256,metric(response,"geography").eligibleRecords());
+      assertEquals(128,metric(response,"geography").missingOrRestrictedRecords());
+      assertEquals(Map.of("江苏省",16.0),items(response,"geography"));
+      assertFalse(response.toString().contains("PRIVATE_CORE"));
+      assertFalse(response.toString().contains("UNMAPPED_SECRET"));
+      jdbc.update("""
+         UPDATE catalog_annotation_revisions SET normalized_value='PRIVATE_CHANGED',raw_value='PRIVATE_CHANGED'
+         WHERE annotation_file_id='shared-2' AND field_key IN ('core.author_name','legacy.author_birth_place','legacy.style')
+         """);
+      assertEquals(response,store.paintingStatistics());
+
+      // Inspect actual isolated execution rather than assert an exact planner
+      // tree or elapsed time: annotations may be scanned once or once per
+      // painting, but must not be rescanned once per field definition.
+      var plan=new ObjectMapper().readTree(jdbc.queryForObject(
+         "EXPLAIN (ANALYZE,FORMAT JSON,TIMING OFF) "+statisticsSql(),String.class)).get(0).get("Plan");
+      var scans=new ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+      annotationScans(plan,scans);
+      assertFalse(scans.isEmpty());
+      assertTrue(scans.stream().allMatch(node->node.path("Actual Loops").asLong()<=384),
+         "Annotation access must not repeat for each source-file field definition");
+   }
+
+   private void annotationScans(com.fasterxml.jackson.databind.JsonNode node,List<com.fasterxml.jackson.databind.JsonNode> scans) {
+      if("catalog_annotation_revisions".equals(node.path("Relation Name").asText())) scans.add(node);
+      for(var child:node.path("Plans")) annotationScans(child,scans);
+   }
+
+   private String statisticsSql() throws Exception {
       String sql;
       try(var stream=new ClassPathResource("knowledge/painting-statistics.sql").getInputStream()) {
          sql=new String(stream.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8)
             .replace("/* GALLERY_SOURCE */",PostgresCatalogReadStore.CURRENT_SOURCE)
             .replace("/* GALLERY_WHERE */",PostgresCatalogReadStore.GALLERY_WHERE);
       }
+      return sql;
+   }
+
+   private void assertSameRowsAsPreviousQuery() throws Exception {
+      String sql=statisticsSql();
       // Independent before-change oracle: keep all other aggregation logic,
       // including public projection, coverage, ordering and bounded outputs.
-      String previous=sql.replaceFirst("(?s)best_region_candidates AS \\(.*?\\), region_matches AS", """
+      String previous=sql.replaceFirst("(?s)candidate_values AS MATERIALIZED \\(.*?\\), usable_values AS", """
+         public_values AS (
+          SELECT p.public_id, ar.field_key,
+                 btrim(regexp_replace(ar.normalized_value, '[[:space:]　]+', ' ', 'g')) AS value,
+                 btrim(regexp_replace(ar.raw_value, '[[:space:]　]+', ' ', 'g')) AS raw_value
+          FROM population p
+          JOIN catalog_annotation_revisions ar ON ar.batch_id=p.batch_id AND ar.revision=p.revision
+            AND ar.annotation_file_id=p.annotation_file_id AND ar.record_number=p.record_number
+          JOIN catalog_annotation_field_definitions fd ON fd.batch_id=ar.batch_id AND fd.revision=ar.revision
+            AND fd.annotation_file_id=ar.annotation_file_id AND fd.field_key=ar.field_key
+          WHERE fd.visibility='public' AND ar.value_status='PRESENT'
+           AND ar.assertion_status NOT IN ('UNRESOLVED','UNKNOWN') AND ar.field_key IN ('annotation.style','annotation.subject_secondary','core.author_name','core.category','legacy.artistic_conception','legacy.author_birth_place','legacy.author_name','legacy.brushwork','legacy.category','legacy.color','legacy.composition','legacy.creation_dynasty_raw','legacy.ink_method','legacy.music_scene_description','legacy.painting_school','legacy.style','legacy.subject')
+         ), usable_values AS""");
+      assertNotEquals(sql,previous,"Reference query must use the prior inline public annotation join");
+      String previousJoin=previous;
+      previous=previous.replaceFirst("(?s)best_region_candidates AS \\(.*?\\), region_matches AS", """
          best_region_candidates AS (
           SELECT c.* FROM region_candidates c WHERE c.priority=(SELECT min(c2.priority)
             FROM region_candidates c2 WHERE c2.public_id=c.public_id)
          ), region_matches AS""");
-      assertNotEquals(sql,previous,"Reference query must use the prior correlated selection");
+      assertNotEquals(previousJoin,previous,"Reference query must use the prior correlated selection");
       assertEquals(jdbc.queryForList(previous),jdbc.queryForList(sql),
          "All ordered metric rows, denominators, values and truncation metadata must remain identical");
    }

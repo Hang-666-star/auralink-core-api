@@ -38,8 +38,8 @@ class CandidateTests(unittest.TestCase):
     def save_manifest(self, document):
         self.manifest.write_text(json.dumps(document), encoding="utf-8")
 
-    def verify(self):
-        return C.verify(self.manifest, self.jar, self.report, "a" * 40, "123", "1")
+    def verify(self, **overrides):
+        return C.verify(self.manifest, self.jar, self.report, "a" * 40, "123", "1", **overrides)
 
     def test_roundtrip_and_explicit_nonproduction_scope(self):
         with patch.object(C, "packaged_verifier", return_value=self.stub) as verifier:
@@ -48,12 +48,40 @@ class CandidateTests(unittest.TestCase):
             self.assertEqual(self.verify(), document)
             self.assertEqual(verifier.call_count, 2)
         self.assertIs(document["production_approved"], False)
+        self.assertEqual(document["repository"], "bailangguihun/auralink-core-api")
 
     def test_main_ref_and_fork_repository_are_refused_before_artifact_reads(self):
-        for override in ({"ref": "refs/heads/main"}, {"repository": "fork/auralink-core-api"}):
+        for override in ({"ref": "refs/heads/main"}, {"repository": "fork/auralink-core-api"},
+                         {"repository": C.HISTORICAL_REPOSITORY}):
             with self.subTest(override=override), patch.object(C, "packaged_verifier") as verifier:
                 with self.assertRaises(C.Refused):
                     self.create(**override)
+                verifier.assert_not_called()
+
+    def test_historical_manifest_requires_explicit_independent_repository_and_remains_unchanged(self):
+        with patch.object(C, "packaged_verifier", return_value=self.stub):
+            document = self.create()
+            # Represents an existing historical transport record, not a new
+            # build permitted to claim the old repository after transfer.
+            document["repository"] = C.HISTORICAL_REPOSITORY
+            self.save_manifest(document)
+            original = self.manifest.read_bytes()
+            with self.assertRaisesRegex(C.Refused, "expected_repository_mismatch"):
+                self.verify()
+            self.assertEqual(self.verify(expected_repository=C.HISTORICAL_REPOSITORY), document)
+            self.assertEqual(self.manifest.read_bytes(), original)
+
+    def test_repository_mismatch_and_unknown_expected_repository_refused_before_artifact_reads(self):
+        with patch.object(C, "packaged_verifier", return_value=self.stub):
+            document = self.create()
+        for declared, expected in ((C.REPOSITORY, C.HISTORICAL_REPOSITORY),
+                                   (C.HISTORICAL_REPOSITORY, C.REPOSITORY),
+                                   ("fork/auralink-core-api", "fork/auralink-core-api"),
+                                   (C.REPOSITORY, None), (C.REPOSITORY, [])):
+            self.save_manifest(dict(document, repository=declared))
+            with self.subTest(declared=declared, expected=expected), patch.object(C, "packaged_verifier") as verifier:
+                with self.assertRaisesRegex(C.Refused, "expected_repository_mismatch"):
+                    self.verify(expected_repository=expected)
                 verifier.assert_not_called()
 
     def test_malformed_commit_and_run_identity_refused(self):
