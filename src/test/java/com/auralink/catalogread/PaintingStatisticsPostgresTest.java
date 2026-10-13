@@ -13,6 +13,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.core.io.ClassPathResource;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -163,6 +164,74 @@ class PaintingStatisticsPostgresTest {
       assertEquals(50,metric(response,"category").items().size());
       assertTrue(metric(response,"category").truncated());
       assertEquals(65,metric(response,"category").eligibleRecords());
+   }
+
+   @Test void geographyPreservesProvincePriorityConflictsAndNameBirthplaceUnits() throws Exception {
+      String[] authors={"张三","张三","张三","张三","乙","丙","丁","戊","0","己","庚","辛"};
+      String[] places={"江苏苏州","江苏苏州","苏州南京","江苏杭州","江苏浙江","南京杭州",
+         "未映射地点","江苏苏州","江苏苏州","未知","江苏苏州","苏州南京"};
+      for(int n=1;n<=authors.length;n++) {
+         painting(n,"ACTIVE","READY",true);
+         value(n,"core.author_name","public",authors[n-1]);
+         value(n,"legacy.author_birth_place",n==8?"hidden":"public",places[n-1]);
+         value(n,"core.category","public","山水"); value(n,"legacy.creation_dynasty_raw","public","宋");
+         value(n,"legacy.style","public","工笔、写意"); value(n,"legacy.artistic_conception","public","宁静");
+         value(n,"legacy.music_scene_description","public","欢快");
+      }
+      assertSameRowsAsPreviousRegionSelection();
+      var response=store.paintingStatistics();
+      assertEquals(12,response.population().count());
+      assertEquals(8,response.authorNames().count());
+      assertEquals(11,response.authorNames().eligibleRecords());
+      assertEquals(Map.of("江苏省",5.0),items(response,"geography"));
+      assertEquals(9,metric(response,"geography").eligibleRecords());
+      assertEquals(3,metric(response,"geography").missingOrRestrictedRecords());
+      assertEquals(3,metric(response,"geography").unmatchedRecords());
+      assertEquals(12,item(response,"dynasty","宋代"));
+      assertEquals(12,item(response,"sentiment","欢快"));
+   }
+
+   @Test void denseGeographicCoverageMatchesEveryPreviousAggregateRow() throws Exception {
+      String[] places={"江苏苏州","苏州南京","江苏杭州","江苏浙江","南京杭州","未映射地点"};
+      // All 13 names occur with each of six birthplace strings five times.
+      // Multiple candidates per painting expose the former correlated rescan;
+      // this remains a bounded semantic fixture, not the prior 10,000-row run.
+      for(int n=0;n<390;n++) {
+         painting(n+1,"ACTIVE","READY",true);
+         value(n+1,"core.author_name","public","合成作者"+(n%13));
+         value(n+1,"legacy.author_birth_place","public",places[n%places.length]);
+         value(n+1,"core.category","public",n%2==0?"山水":"花鸟");
+         value(n+1,n%2==0?"legacy.style":"annotation.style","public","工笔、写意");
+      }
+      jdbc.execute("ANALYZE catalog_paintings");jdbc.execute("ANALYZE catalog_source_records");
+      jdbc.execute("ANALYZE catalog_annotation_field_definitions");jdbc.execute("ANALYZE catalog_annotation_revisions");
+      assertSameRowsAsPreviousRegionSelection();
+      var response=store.paintingStatistics();
+      assertEquals(390,response.population().count());
+      assertEquals(13,response.authorNames().count());
+      assertEquals(Map.of("江苏省",39.0),items(response,"geography"));
+      assertEquals(390,metric(response,"geography").eligibleRecords());
+      assertEquals(195,metric(response,"geography").unmatchedRecords());
+      assertEquals(0,metric(response,"geography").missingOrRestrictedRecords());
+   }
+
+   private void assertSameRowsAsPreviousRegionSelection() throws Exception {
+      String sql;
+      try(var stream=new ClassPathResource("knowledge/painting-statistics.sql").getInputStream()) {
+         sql=new String(stream.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8)
+            .replace("/* GALLERY_SOURCE */",PostgresCatalogReadStore.CURRENT_SOURCE)
+            .replace("/* GALLERY_WHERE */",PostgresCatalogReadStore.GALLERY_WHERE);
+      }
+      // Independent before-change oracle: keep all other aggregation logic,
+      // including public projection, coverage, ordering and bounded outputs.
+      String previous=sql.replaceFirst("(?s)best_region_candidates AS \\(.*?\\), region_matches AS", """
+         best_region_candidates AS (
+          SELECT c.* FROM region_candidates c WHERE c.priority=(SELECT min(c2.priority)
+            FROM region_candidates c2 WHERE c2.public_id=c.public_id)
+         ), region_matches AS""");
+      assertNotEquals(sql,previous,"Reference query must use the prior correlated selection");
+      assertEquals(jdbc.queryForList(previous),jdbc.queryForList(sql),
+         "All ordered metric rows, denominators, values and truncation metadata must remain identical");
    }
 
    @Test void tenThousandSyntheticRecordsKeepExactCountsAndBoundedPublicProjection() throws Exception {

@@ -401,7 +401,9 @@ CASE WHEN count(DISTINCT f.value) FILTER (WHERE f.field_key IN ('legacy.music_sc
  SELECT DISTINCT r.public_id, rr.region, rr.priority FROM records r
  JOIN region_rules rr ON strpos(r.birthplace, rr.term)>0
 ), best_region_candidates AS (
- SELECT c.* FROM region_candidates c WHERE c.priority=(SELECT min(c2.priority) FROM region_candidates c2 WHERE c2.public_id=c.public_id)
+ SELECT public_id,region,priority FROM (
+  SELECT c.*,min(priority) OVER (PARTITION BY public_id) AS best_priority FROM region_candidates c
+ ) ranked_regions WHERE priority=best_priority
 ), region_matches AS (
  SELECT public_id, CASE WHEN count(DISTINCT region)=1 THEN min(region) END AS region
  FROM best_region_candidates GROUP BY public_id
