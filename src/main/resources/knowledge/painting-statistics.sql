@@ -4,17 +4,24 @@ WITH population AS MATERIALIZED (
  SELECT p.public_id, sr.batch_id, sr.revision, sr.annotation_file_id, sr.record_number
  /* GALLERY_SOURCE */
  /* GALLERY_WHERE */
-), public_values AS (
- SELECT p.public_id, ar.field_key,
-        btrim(regexp_replace(ar.normalized_value, '[[:space:]　]+', ' ', 'g')) AS value,
-        btrim(regexp_replace(ar.raw_value, '[[:space:]　]+', ' ', 'g')) AS raw_value
+), candidate_values AS MATERIALIZED (
+ -- Scan each eligible record's annotations before the file-level field join.
+ -- This prevents field definitions multiplying repeated annotation lookups.
+ SELECT p.public_id, ar.batch_id, ar.revision, ar.annotation_file_id, ar.field_key,
+        ar.normalized_value, ar.raw_value
  FROM population p
  JOIN catalog_annotation_revisions ar ON ar.batch_id=p.batch_id AND ar.revision=p.revision
    AND ar.annotation_file_id=p.annotation_file_id AND ar.record_number=p.record_number
- JOIN catalog_annotation_field_definitions fd ON fd.batch_id=ar.batch_id AND fd.revision=ar.revision
-   AND fd.annotation_file_id=ar.annotation_file_id AND fd.field_key=ar.field_key
- WHERE fd.visibility='public' AND ar.value_status='PRESENT'
+ WHERE ar.value_status='PRESENT'
   AND ar.assertion_status NOT IN ('UNRESOLVED','UNKNOWN') AND ar.field_key IN ('annotation.style','annotation.subject_secondary','core.author_name','core.category','legacy.artistic_conception','legacy.author_birth_place','legacy.author_name','legacy.brushwork','legacy.category','legacy.color','legacy.composition','legacy.creation_dynasty_raw','legacy.ink_method','legacy.music_scene_description','legacy.painting_school','legacy.style','legacy.subject')
+), public_values AS (
+ SELECT c.public_id, c.field_key,
+        btrim(regexp_replace(c.normalized_value, '[[:space:]　]+', ' ', 'g')) AS value,
+        btrim(regexp_replace(c.raw_value, '[[:space:]　]+', ' ', 'g')) AS raw_value
+ FROM candidate_values c
+ JOIN catalog_annotation_field_definitions fd ON fd.batch_id=c.batch_id AND fd.revision=c.revision
+   AND fd.annotation_file_id=c.annotation_file_id AND fd.field_key=c.field_key
+ WHERE fd.visibility='public'
 ), usable_values AS (
  SELECT * FROM public_values WHERE lower(value) NOT IN ('','0','未详','不详','未提供','未知','未注明','不确定','未明确提及','未提及','暂无','—','-','/','无','不明','待核实','待考','null','none','unknown','n/a')
   AND COALESCE(lower(raw_value),'') <> '0' AND length(value) <= 4096
@@ -401,7 +408,9 @@ CASE WHEN count(DISTINCT f.value) FILTER (WHERE f.field_key IN ('legacy.music_sc
  SELECT DISTINCT r.public_id, rr.region, rr.priority FROM records r
  JOIN region_rules rr ON strpos(r.birthplace, rr.term)>0
 ), best_region_candidates AS (
- SELECT c.* FROM region_candidates c WHERE c.priority=(SELECT min(c2.priority) FROM region_candidates c2 WHERE c2.public_id=c.public_id)
+ SELECT public_id,region,priority FROM (
+  SELECT c.*,min(priority) OVER (PARTITION BY public_id) AS best_priority FROM region_candidates c
+ ) ranked_regions WHERE priority=best_priority
 ), region_matches AS (
  SELECT public_id, CASE WHEN count(DISTINCT region)=1 THEN min(region) END AS region
  FROM best_region_candidates GROUP BY public_id
