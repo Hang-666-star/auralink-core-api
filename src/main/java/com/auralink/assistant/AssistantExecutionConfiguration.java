@@ -27,7 +27,7 @@ public class AssistantExecutionConfiguration {
    AssistantProperties base=Binder.get(environment).bind("auralink.assistant",Bindable.of(AssistantProperties.class)).orElseThrow(()->new IllegalArgumentException("Missing Assistant foundation settings"));
    var foundation=foundations.getIfAvailable();var source=sources.getIfAvailable();var attachment=attachments.getIfAvailable();if(foundation==null||source==null||attachment==null)throw new IllegalArgumentException("Missing Assistant storage");
    var store=new AssistantExecutionStore(source,foundation,Clock.systemUTC(),base.getRequestReplayWindow(),base.getMaxPendingPerSession(),p.getMaxEvents(),p.getConcurrency(),p.getOwnerConcurrency(),p.getGlobalPending(),p.getOwnerPending());store.verifySchema();
-   client=new AssistantAiClient(p,json);var jdbc=reads.getIfAvailable();var service=new AssistantExecutionService(store,foundation,attachment,client,jdbc==null?null:new AssistantArtworkRead(jdbc),media.getIfAvailable(),p,json,Clock.systemUTC());service.start();return new AssistantExecutionRuntime(service,client,"READY");
+   client=new AssistantAiClient(p,json);var jdbc=reads.getIfAvailable();var service=new AssistantExecutionService(store,foundation,attachment,client,jdbc==null?null:new AssistantArtworkRead(jdbc),media.getIfAvailable(),p,json,Clock.systemUTC(),new AssistantGenerationControl(java.nio.file.Path.of(base.getAttachmentRoot()))::state);service.start();return new AssistantExecutionRuntime(service,client,"READY");
   }catch(RuntimeException misconfigured){if(client!=null)client.close();return new AssistantExecutionRuntime(null,null,"ASSISTANT_EXECUTION_MISCONFIGURED");}
  }
 }

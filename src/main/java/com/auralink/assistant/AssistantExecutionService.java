@@ -15,14 +15,22 @@ public final class AssistantExecutionService implements AutoCloseable {
  private final AssistantExecutionStore store;private final AssistantStore foundation;private final AssistantAttachmentService attachments;
  private final AssistantAiClient ai;private final AssistantArtworkRead artworks;private final CatalogMediaService media;private final AssistantExecutionProperties p;private final ObjectMapper json;private final Clock clock;
  private volatile Map<String,Object> registry;
+ private final java.util.function.Supplier<String> generationControl;
  private final String worker=UUID.randomUUID().toString();
  private final ScheduledExecutorService scheduler=Executors.newScheduledThreadPool(2,thread("assistant-scheduler"));
  private final ExecutorService workers;private final Semaphore capacity;private final ConcurrentHashMap<UUID,Long> active=new ConcurrentHashMap<>();private volatile boolean closed;
  public AssistantExecutionService(AssistantExecutionStore store,AssistantStore foundation,AssistantAttachmentService attachments,AssistantAiClient ai,AssistantArtworkRead artworks,CatalogMediaService media,AssistantExecutionProperties p,ObjectMapper json,Clock clock){
+  this(store,foundation,attachments,ai,artworks,media,p,json,clock,()->"AVAILABLE");
+ }
+ public AssistantExecutionService(AssistantExecutionStore store,AssistantStore foundation,AssistantAttachmentService attachments,AssistantAiClient ai,AssistantArtworkRead artworks,CatalogMediaService media,AssistantExecutionProperties p,ObjectMapper json,Clock clock,java.util.function.Supplier<String> generationControl){
+  this.generationControl=Objects.requireNonNull(generationControl);
   this.store=store;this.foundation=foundation;this.attachments=attachments;this.ai=ai;this.artworks=artworks;this.media=media;this.p=p;this.json=json;this.clock=clock;
   workers=Executors.newFixedThreadPool(p.getConcurrency(),thread("assistant-execution"));capacity=new Semaphore(p.getConcurrency());
  }
  private static java.util.concurrent.ThreadFactory thread(String name){return r->{Thread t=new Thread(r,name);t.setDaemon(true);return t;};}
+ public String generationState(){return generationControl.get();}
+ public boolean generationAvailable(){return "AVAILABLE".equals(generationState());}
+ private void requireGeneration(){String state=generationState();if(!"AVAILABLE".equals(state))throw new AssistantFailure(503,state,"Assistant generation is suspended; existing history and attachments remain available");}
  public void start(){scheduler.scheduleWithFixedDelay(this::tick,50,p.getPollInterval().toMillis(),TimeUnit.MILLISECONDS);}
  public Map<String,Object> models(){Map<String,Object> result=ai.models();registry=result;return result;}
  @SuppressWarnings("unchecked") private Map<String,Object> model(String id){
@@ -53,30 +61,32 @@ public final class AssistantExecutionService implements AutoCloseable {
   if(images>4)throw new AssistantFailure(422,"ASSISTANT_IMAGE_LIMIT","The selected context exceeds four images");
   if(images>0&&!Boolean.TRUE.equals(map(selected.get("capabilities")).get("images")))throw new AssistantFailure(422,"ASSISTANT_IMAGES_UNSUPPORTED","The selected model does not accept images");
  }
- public Accepted admit(long owner,UUID session,Command c){var command=command(owner,session,c);var replay=store.replayAdmission(owner,command);if(replay.isPresent())return replay.get();validateInput(owner,command);return store.admit(owner,command);}
- public Accepted retry(long owner,UUID id,String key,long version,boolean acknowledge){var replay=store.replayRetry(owner,id,key,version,acknowledge);if(replay.isPresent())return replay.get();Run previous=store.get(owner,id);if(!previous.kind().equals("RETRIEVAL"))model(previous.modelId());if(!p.getExpectedConfigSha256().equals(previous.options().get("configSha256")))throw AssistantFailure.conflict("Retry requires the original model configuration");return store.retry(owner,id,key,version,acknowledge);}
+ public Accepted admit(long owner,UUID session,Command c){var command=command(owner,session,c);var replay=store.replayAdmission(owner,command);if(replay.isPresent())return replay.get();requireGeneration();validateInput(owner,command);return store.admit(owner,command);}
+ public Accepted retry(long owner,UUID id,String key,long version,boolean acknowledge){var replay=store.replayRetry(owner,id,key,version,acknowledge);if(replay.isPresent())return replay.get();requireGeneration();Run previous=store.get(owner,id);if(!previous.kind().equals("RETRIEVAL"))model(previous.modelId());if(!p.getExpectedConfigSha256().equals(previous.options().get("configSha256")))throw AssistantFailure.conflict("Retry requires the original model configuration");return store.retry(owner,id,key,version,acknowledge);}
  public AssistantRecords.Branch revise(long owner,UUID session,UUID message,UUID branch,long version,String key,String text){return foundation.reviseMessage(owner,session,branch,message,version,key,text);}
  public Accepted executeEdited(long owner,UUID session,Command c){
   Admission command=command(owner,session,c);if(!command.attachmentIds().isEmpty())throw AssistantFailure.invalid("Edited execution reuses its persisted image references");
-  var replay=store.replayEditedInput(owner,command);if(replay.isPresent())return replay.get();
+  var replay=store.replayEditedInput(owner,command);if(replay.isPresent())return replay.get();requireGeneration();
   var branch=foundation.branches(owner,session).stream().filter(b->b.id().equals(c.branchId())).findFirst().orElseThrow(AssistantFailure::notFound);
   var head=foundation.history(owner,session,c.branchId(),false,1).stream().filter(m->m.id().equals(branch.headMessageId())).findFirst().orElseThrow(AssistantFailure::notFound);
   validateInput(owner,command);return store.admitEdited(owner,new Admission(session,c.branchId(),c.expectedVersion(),c.requestKey(),c.text(),head.attachmentIds(),c.modelKey(),command.options()));
  }
- public Accepted choice(long owner,UUID id,String card,String option,Command c){UUID session=store.ownedSessionForRequest(owner,id);Admission replayCommand=command(owner,session,c);var replay=store.replayChoice(owner,id,card,option,replayCommand);if(replay.isPresent())return replay.get();Run source=store.get(owner,id);var selected=store.choices(owner,id).stream().filter(x->x.id().equals(card)).findFirst().orElseThrow(AssistantFailure::notFound);var selection=selected.options().stream().filter(x->x.id().equals(option)).findFirst().orElseThrow(AssistantFailure::notFound);Command normalized=new Command(c.branchId(),c.expectedVersion(),c.requestKey(),selection.text(),c.attachmentIds(),c.modelKey(),c.retrieval(),c.artworkRefs());Admission command=command(owner,source.sessionId(),normalized);validateInput(owner,command);return store.choice(owner,id,card,option,command);}
- public Run summary(long owner,UUID session,UUID branch,String key){foundation.session(owner,session);return store.summary(owner,session,branch,key,"",Map.of("promptVersion","assistant-summary-v1"),p.getMaxSummaryPerHour());}
+ public Accepted choice(long owner,UUID id,String card,String option,Command c){UUID session=store.ownedSessionForRequest(owner,id);Admission replayCommand=command(owner,session,c);var replay=store.replayChoice(owner,id,card,option,replayCommand);if(replay.isPresent())return replay.get();requireGeneration();Run source=store.get(owner,id);var selected=store.choices(owner,id).stream().filter(x->x.id().equals(card)).findFirst().orElseThrow(AssistantFailure::notFound);var selection=selected.options().stream().filter(x->x.id().equals(option)).findFirst().orElseThrow(AssistantFailure::notFound);Command normalized=new Command(c.branchId(),c.expectedVersion(),c.requestKey(),selection.text(),c.attachmentIds(),c.modelKey(),c.retrieval(),c.artworkRefs());Admission command=command(owner,source.sessionId(),normalized);validateInput(owner,command);return store.choice(owner,id,card,option,command);}
+ public Run summary(long owner,UUID session,UUID branch,String key){foundation.session(owner,session);return store.summary(owner,session,branch,key,"",Map.of("promptVersion","assistant-summary-v1"),p.getMaxSummaryPerHour(),this::requireGeneration);}
  public Accepted retrieval(long owner,UUID session,Command c){Admission command=command(owner,session,c);return store.retrieval(owner,command);}
  public Run cancel(long owner,UUID id){var result=store.cancel(owner,id);ai.cancel(id);return result;}
  public List<AssistantArtworkRead.Artwork> search(long owner,String query){if(artworks==null)throw unavailable();return artworks.search(query,List.of(),10);}
  private AssistantArtworkRead.Artwork artwork(ArtworkRef ref){if(artworks==null)throw unavailable();return artworks.require(ref.artworkId(),ref.expectedBatchId(),ref.expectedRevision());}
  private static AssistantFailure unavailable(){return new AssistantFailure(503,"ASSISTANT_ARTWORK_UNAVAILABLE","Platform artwork retrieval is unavailable");}
  public AssistantExecutionStore store(){return store;}public AssistantExecutionProperties properties(){return p;}
- private void tick(){
+ void tick(){
   if(closed)return;
   try{
    store.recoverExpired(50);
+   if(!generationAvailable())return;
    if(p.isAutomaticSummaries())for(var candidate:store.automaticSummaryCandidates(p.getSummaryTurnThreshold(),p.getSummaryIdle(),10))try{summary(candidate.owner(),candidate.sessionId(),candidate.branchId(),"auto-summary:"+candidate.headMessageId());}catch(AssistantFailure ignored){}
    for(var pending:store.pendingSessions(50)){
+    if(!generationAvailable())break;
     if(!capacity.tryAcquire())break;
     try{Optional<Run> run=store.claim(pending.owner(),pending.sessionId(),worker,p.getLease());if(run.isEmpty()){capacity.release();continue;}active.put(run.get().id(),pending.owner());workers.execute(()->execute(pending.owner(),run.get()));}catch(RuntimeException failure){capacity.release();throw failure;}
    }
@@ -86,6 +96,7 @@ public final class AssistantExecutionService implements AutoCloseable {
   AtomicReference<Run> run=new AtomicReference<>(claimed);AtomicReference<String> text=new AtomicReference<>("");AtomicBoolean terminal=new AtomicBoolean();AtomicReference<Map<String,Object>> usage=new AtomicReference<>(Map.of("available",false));AtomicReference<List<ChoiceCard>> choices=new AtomicReference<>(List.of());List<Citation> citations=new ArrayList<>();
   var heartbeat=scheduler.scheduleWithFixedDelay(()->{try{store.heartbeat(owner,claimed.id(),claimed.fence(),worker,p.getLease());}catch(RuntimeException revoked){ai.closeStream(claimed.id());}},Math.max(100,p.getLease().toMillis()/3),Math.max(100,p.getLease().toMillis()/3),TimeUnit.MILLISECONDS);
   try{
+   requireGeneration();
    if(!p.getExpectedConfigSha256().equals(claimed.options().get("configSha256")))throw new AssistantFailure(409,"ASSISTANT_CONFIG_CHANGED","Saved configuration is no longer available");
    var selected=claimed.kind().equals("RETRIEVAL")?Map.<String,Object>of():model(claimed.modelId());var context=buildContext(owner,claimed,selected);Map<String,Object> retrieval=new LinkedHashMap<>();Map<String,Object> requested=map(claimed.options().get("retrieval"));
    boolean platform=Boolean.TRUE.equals(requested.get("artworks"))&&!claimed.kind().equals("SUMMARY");boolean rag=Boolean.TRUE.equals(requested.get("ragflow"))&&!claimed.kind().equals("SUMMARY");
@@ -97,6 +108,7 @@ public final class AssistantExecutionService implements AutoCloseable {
     }catch(AssistantFailure e){if(e.code().equals("ASSISTANT_ARTWORK_REVISION_CHANGED")||e.status()==404)throw e;retrieval.put("artworks","UNAVAILABLE");}catch(org.springframework.dao.DataAccessException e){retrieval.put("artworks","UNAVAILABLE");}
    }
    if(rag){
+    requireGeneration();
     run.set(store.markIntent(owner,claimed.id(),claimed.fence(),worker,"RETRIEVAL"));
     try{var result=ai.retrieval(context.query().substring(0,Math.min(2000,context.query().length())),true);String state=Objects.toString(result.get("state"),"UNAVAILABLE");if(!Set.of("DISABLED","NOT_CONFIGURED","AVAILABLE","EMPTY","FORBIDDEN","TIMEOUT","UNAVAILABLE").contains(state))state="UNAVAILABLE";retrieval.put("ragflow",state);
      if(state.equals("AVAILABLE"))for(Object item:list(result.get("citations"))){Map<String,Object> c=map(item);String excerpt=Objects.toString(c.get("text"),"");var provenance=new LinkedHashMap<String,Object>();for(String key:List.of("datasetId","documentId","chunkId","title","version","contentSha256"))provenance.put(key,c.get(key));provenance.put("configSha256",p.getExpectedConfigSha256());provenance.put("retrievedAt",clock.instant().toString());String upstreamVersion=c.get("version") instanceof String v&&!v.isBlank()?v:null;provenance.put("upstreamVersionAbsent",upstreamVersion==null);String sourceVersion=upstreamVersion==null?"received-content-sha256:"+digest(excerpt):upstreamVersion;citations.add(new Citation(UUID.randomUUID(),citations.size()+1,"RAGFLOW_DOCUMENT",Objects.toString(c.get("id"),""),sourceVersion,"ragflow-public-chunk-v1",provenance,excerpt,digest(excerpt)));}
@@ -114,6 +126,7 @@ public final class AssistantExecutionService implements AutoCloseable {
    var wireCitations=citations.stream().map(c->Map.of("id",c.id().toString(),"type",c.sourceType(),"text",c.excerpt())).toList();
    Map<String,Object> request=new LinkedHashMap<>();request.put("contractVersion",1);request.put("runId",claimed.id().toString());request.put("attemptId",claimed.id().toString());request.put("fence",claimed.fence());request.put("configSha256",p.getExpectedConfigSha256());request.put("purpose",claimed.kind());request.put("modelKey",claimed.modelId());request.put("messages",context.messages());request.put("citations",wireCitations);request.put("retrievalStates",retrieval);request.put("budgets",Map.of("totalMs",Math.min(180000,p.getTotalTimeout().toMillis()),"maxOutputTokens",4096));
    if(encode(request).getBytes(StandardCharsets.UTF_8).length>14000000)throw new AssistantFailure(422,"ASSISTANT_INPUT_LIMIT","The selected context exceeds the private execution request limit");
+   requireGeneration();
    run.set(store.markIntent(owner,claimed.id(),claimed.fence(),worker,"MODEL"));
    ai.execute(claimed.id(),request,(type,value)->{
     switch(type){

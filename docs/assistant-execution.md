@@ -209,3 +209,37 @@ resultType 为 SESSION/RUN/BRANCH/ATTACHMENT/MESSAGE。无需在浏览器持久�
 ### S3 附件恢复补充（2026-10-14）
 
 附件在待发送阶段通过会话级 `/attachments/draft` 分页恢复，仅在原上传请求期限内、READY且未被任何消息引用时有效。请求状态查询提供 `resultStatus/attachmentLinked/expiresAt`，客户端不得把上传尚未完成的404当作空历史或无限重放同键。发送后仍由消息 attachmentIds 和认证内容接口恢复；完整定义见 `assistant-foundation.md` 的“S3 附件刷新修复”。这些读取不分派模型。
+
+## 人工费用监控的生成暂停（2026-10-14 来源闭合）
+
+首发按既有已认证用户规则开放；费用由运营人工检查，必要时人工暂停。
+这不是金额硬上限、参与者 allowlist，也不改变原 S5 的有限测试账本。
+RAGFlow 首发保持禁用，平台公开作品目录是独立能力。
+
+受审 Deploy 的既有 `core_publish.py assistant-generation status|suspend|resume`
+在 R25 共享锁内操作当前策略绑定的专用附件根，不重启 Core/AI、不修改运行配置。
+它维护固定私有文件 `.generation-suspended-v1`，精确 ASCII 内容
+`ArtLIVE Assistant generation suspended v1\n`，0600、单一 hardlink、常规文件、
+owner 与 0700 专用根一致。控制器写前核对 namespace、身份、事务状态并保存操作记录。
+备份包含此状态；恢复不能悄悄删除暂停标志。不要用浏览器接口或随意改配置替代它。
+
+Core 每次新生成准入、领取 QUEUED 工作和潜在付费发送前检查标志及根/file身份。
+缺文件表示 AVAILABLE；合法文件表示 ASSISTANT_GENERATION_SUSPENDED；
+不可读、内容/权限/owner/链接或根身份不符表示 ASSISTANT_GENERATION_CONTROL_UNAVAILABLE，
+只对生成 fail closed。没有配置新路径、短 TTL、后台删除或新迁移；Assistant 完全关闭时
+不会读取这个标志，不影响旧 V001–V013 启动兼容。
+
+同一请求的已有结果重放、历史/分页、图片、导出、删除、取消和目录搜索仍可使用。
+新聊天、选择生成、编辑后生成、显式重试、全新摘要被拒绝；摘要已有请求/同上下文
+去重仍返回原结果。已排队任务保留 QUEUED，恢复后只领取原任务；中断/结果未知任务
+继续按原 lease/fence 合同处理，不自动改成 QUEUED、不重发。暂停竞态中已经领取、
+但尚未通过发送检查的任务可能变为 FAILED，需要明确重试。
+
+标志不是上游计费的原子开关。已越过发送检查或已经到达供应商的执行可以继续完成并
+收费；暂停不自动取消或重新发送它们。操作者应查看仍活动的 run 和供应商账单，
+不能把 Core 取消成功、暂停或缺失 usage 解释为费用已停止。
+
+`GET /status` 增加 `generationAvailable` 与 `generationState`。
+`executionAvailable` 继续表示历史执行接口可访问，不因人工暂停变 false；Web 应只
+禁用付费生成控件，保持历史/图片/取消可用。旧页面未刷新时仍由服务端 503 精确拒绝，
+不自动重试。`automaticSummaryAvailable` 暂停期间为 false。

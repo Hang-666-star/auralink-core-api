@@ -34,7 +34,7 @@ public class AssistantController {
    }
    @GetMapping("/status") public ResponseEntity<AssistantDtos.Status> status() {
       owner();boolean available=execution!=null&&execution.available();var config=available?execution.require().properties():null;
-      return ok(new AssistantDtos.Status(stores.getIfAvailable()!=null,available?"execution":"foundation",available,available&&config.isAutomaticSummaries(),available?config.getSummaryTurnThreshold():null,available?config.getSummaryIdle().toSeconds():null,available?config.getMaxSummaryPerHour():null));
+      return ok(new AssistantDtos.Status(stores.getIfAvailable()!=null,available?"execution":"foundation",available,available&&execution.require().generationAvailable(),available?execution.require().generationState():"ASSISTANT_EXECUTION_DISABLED",available&&execution.require().generationAvailable()&&config.isAutomaticSummaries(),available?config.getSummaryTurnThreshold():null,available?config.getSummaryIdle().toSeconds():null,available?config.getMaxSummaryPerHour():null));
    }
    @GetMapping("/storage") public ResponseEntity<?> storageUsage(){long owner=owner();return ok(attachmentService().usage(owner));}
    @PostMapping("/requests/resolve") public ResponseEntity<?> resolve(@Valid @RequestBody AssistantDtos.ResolveRequest body){

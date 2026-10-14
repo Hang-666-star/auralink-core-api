@@ -40,6 +40,11 @@ class AssistantControllerTest {
          .andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store")).andExpect(jsonPath("$.ownerId").doesNotExist());
       verify(store).createSession(71,"test-key-01","测试");
    }
+   @Test void manualSuspensionReportsGenerationOnlyAndKeepsExecutionReadsAvailable() throws Exception {
+      var service=mock(AssistantExecutionService.class);when(service.properties()).thenReturn(new AssistantExecutionProperties());when(service.generationState()).thenReturn("ASSISTANT_GENERATION_SUSPENDED");when(service.generationAvailable()).thenReturn(false);
+      var controller=new AssistantController(users,stores,attachments,new ObjectMapper().findAndRegisterModules());org.springframework.test.util.ReflectionTestUtils.setField(controller,"execution",new AssistantExecutionRuntime(service,null,"READY"));
+      var paused=MockMvcBuilders.standaloneSetup(controller).build();paused.perform(get("/api/v1/assistant/status")).andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(true)).andExpect(jsonPath("$.executionAvailable").value(true)).andExpect(jsonPath("$.generationAvailable").value(false)).andExpect(jsonPath("$.generationState").value("ASSISTANT_GENERATION_SUSPENDED"));verifyNoInteractions(attachment);
+   }
    @Test void disabledExposesStatusButRejectsFoundationWrites() throws Exception {
       when(stores.getIfAvailable()).thenReturn(null);
       mvc.perform(get("/api/v1/assistant/status")).andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(false)).andExpect(jsonPath("$.executionAvailable").value(false));
